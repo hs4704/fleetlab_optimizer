@@ -24,7 +24,7 @@ def geocode_addresses(addresses):
             if geocode:
                 location = geocode[0]['geometry']['location']
                 latitudes.append(location["lat"])
-                longitudes.append(location["lon"])
+                longitudes.append(location["lng"])
             else:
                 latitudes.append(None)
                 longitudes.append(None)
@@ -55,32 +55,46 @@ def autofill_missing_fields(df):
             df.at[idx, 'Construction Risk (C)'] = 0.2
     return df
 
-# === UPLOAD OR SIMULATE STOPS ===
+# === SELECT STOP INPUT METHOD ===
 st.sidebar.header("1. Load Stops")
 option = st.sidebar.radio("Select input mode:", ["Upload CSV", "Simulate from School Name"])
+df_stops = None
 
 if option == "Upload CSV":
     uploaded_file = st.sidebar.file_uploader("Upload stop CSV", type="csv")
     if uploaded_file:
         df_stops = pd.read_csv(uploaded_file)
+        st.success("✅ File uploaded successfully!")
     else:
-        df_stops = pd.read_csv("sample_stops.csv")
-else:
+        try:
+            df_stops = pd.read_csv("sample_stops.csv")
+            st.warning("📄 Using default sample_stops.csv")
+        except Exception as e:
+            st.error(f"❌ Failed to load sample stops: {e}")
+            st.stop()
+
+elif option == "Simulate from School Name":
+    from simulator import simulate_district
     school_name = st.sidebar.text_input("Enter School Name", "Northville High School, MI")
     if st.sidebar.button("Simulate Stops"):
-        geo = gmaps.geocode(school_name)
-        loc = geo[0]['geometry']['location']
-        lat, lon = loc['lat'], loc['lng']
-        # Generate mock stops near school
-        df_stops = pd.DataFrame({
-            "Stop Name": [f"Stop {i+1}" for i in range(30)],
-            "lat": [lat + 0.01 * i / 30 for i in range(30)],
-            "lon": [lon - 0.01 * i / 30 for i in range(30)],
-            "Address": [school_name]*30
-        })
+        try:
+            sim = simulate_district(school_name)
+            stops = sim["stops"]
+            df_stops = pd.DataFrame({
+                "Stop Name": [f"Stop {i+1}" for i in range(len(stops))],
+                "lat": [pt.y for pt in stops],
+                "lon": [pt.x for pt in stops],
+                "Address": [school_name] * len(stops)
+            })
+            st.success(f"✅ Simulated stops generated for: {school_name}")
+        except Exception as e:
+            st.error(f"❌ Simulation failed: {e}")
+            st.stop()
     else:
+        st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
+# === ENSURE LAT/LON AND SAFETY FACTORS EXIST ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         lats, lons = geocode_addresses(df_stops["Address"])
@@ -88,18 +102,21 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
         df_stops["lon"] = lons
     else:
         st.warning("📍 No Address column found, and no lat/lon available.")
+        st.stop()
 
 with st.spinner("Auto-generating missing safety factors..."):
     df_stops = autofill_missing_fields(df_stops)
 
-# === SAFETY SCORE SIMULATION ===
+# === SAFETY SCORE LOGIC ===
 def calculate_ses(row):
-    return 0.8 - 0.01 * int(row.name)  # mock SES score
+    return 0.8 - 0.01 * int(row.name)  # mock SES scoring
 
 df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
-df_stops["Safety Rating"] = df_stops["SES Score"].apply(lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe")
+df_stops["Safety Rating"] = df_stops["SES Score"].apply(
+    lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
+)
 
-# === SHOW MAP ===
+# === MAP VIEW ===
 st.subheader("📍 Stop Safety Map")
 if "lat" in df_stops.columns and "lon" in df_stops.columns:
     m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
@@ -115,6 +132,8 @@ if "lat" in df_stops.columns and "lon" in df_stops.columns:
             popup=f"{row['Stop Name']}: {row['Safety Rating']}"
         ).add_to(cluster)
     st_folium(m, width=800)
+else:
+    st.warning("No lat/lon data available to display map.")
 
 # === FLEET MIX OPTIMIZATION ===
 st.subheader("🚐 Fleet Mix Optimizer")
@@ -142,7 +161,7 @@ if st.button("Optimize Fleet Mix"):
     else:
         st.error("❌ No valid fleet combination found.")
 
-# === ROUTE COVERAGE SIMULATION ===
+# === ROUTE COVERAGE STATS ===
 st.subheader("🧭 Route Coverage Summary")
 if "SES Score" in df_stops:
     high_risk = df_stops[df_stops["Safety Rating"] == "Unsafe"].shape[0]

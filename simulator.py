@@ -23,3 +23,19 @@ def simulate_district(school_name, student_df=None):
         "stops": stops,
         "utm_crs": utm_crs
     }
+def generate_stops_for_school(school_name):
+    """Public interface to generate a DataFrame of stops for a given school name."""
+    sim = simulate_district(school_name)
+    stops = sim["stops"]
+    
+    # Ensure it's a GeoDataFrame and convert geometry to lat/lon
+    if not isinstance(stops, gpd.GeoDataFrame):
+        raise ValueError("stops is not a GeoDataFrame.")
+
+    stops = stops.to_crs(epsg=4326)  # WGS84 lat/lon
+    stops["lat"] = stops.geometry.y
+    stops["lon"] = stops.geometry.x
+    stops["Stop Name"] = [f"Simulated Stop {i+1}" for i in range(len(stops))]
+    stops["Address"] = school_name
+
+    return stops[["Stop Name", "lat", "lon", "Address"]]

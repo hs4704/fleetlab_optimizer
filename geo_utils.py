@@ -1,5 +1,5 @@
 # geo_utils.py
-
+osmnx
 import googlemaps
 import geopandas as gpd
 import pandas as pd
