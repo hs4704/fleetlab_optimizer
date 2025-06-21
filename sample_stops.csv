@@ -1,0 +1,11 @@
+Stop Name,Address,Visibility (V),Lighting (L),Traffic Risk (T),Pedestrian Safety (P),Sidewalk Quality (S),Construction Risk (C),U-Turn Required (U)
+Stop A (residential),"1130 Granger Ave, Ann Arbor, MI 48104",0.9,0.8,0.2,1.0,0.9,0.0,0
+Stop B (intersection),"Packard St & State St, Ann Arbor, MI 48104",0.6,0.4,0.8,0.4,0.5,0.2,1
+Stop C (parking lot),"3275 Central Blvd, Ann Arbor, MI 48108",0.8,1.0,0.3,0.7,0.8,0.1,0
+Stop D (rural driveway),"1950 Earhart Rd, Ann Arbor, MI 48105",0.7,0.3,0.1,0.5,0.4,0.0,1
+Stop E (busy road),"300 S Main St, Ann Arbor, MI 48104",0.5,0.6,0.9,0.3,0.3,0.3,1
+Stop F (school loop),"2800 Stone School Rd, Ann Arbor, MI 48108",1.0,1.0,0.1,1.0,1.0,0.0,0
+Stop G (quiet cul-de-sac),"2600 Shady Lane, Ann Arbor, MI 48104",0.95,0.9,0.1,0.9,0.95,0.0,0
+Stop H (blind corner),"Broadway St & Swift St, Ann Arbor, MI 48105",0.4,0.2,0.9,0.3,0.3,0.3,1
+Stop I (construction zone),"2850 S Industrial Hwy, Ann Arbor, MI 48104",0.3,0.3,1.0,0.2,0.2,1.0,1
+Stop J (shared driveway),"3621 Burbank Dr, Ann Arbor, MI 48105",0.6,0.5,0.5,0.6,0.7,0.4,1
