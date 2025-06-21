@@ -14,6 +14,47 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS SETUP ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
+# === ADDRESS GEOCODING ===
+@st.cache_data(show_spinner="Geocoding addresses...")
+def geocode_addresses(addresses):
+    latitudes, longitudes = [], []
+    for address in addresses:
+        try:
+            geocode = gmaps.geocode(address)
+            if geocode:
+                location = geocode[0]['geometry']['location']
+                latitudes.append(location["lat"])
+                longitudes.append(location["lon"])
+            else:
+                latitudes.append(None)
+                longitudes.append(None)
+        except:
+            latitudes.append(None)
+            longitudes.append(None)
+        time.sleep(0.2)
+    return latitudes, longitudes
+
+# === AUTO FILL MISSING FACTORS ===
+def autofill_missing_fields(df):
+    for idx, row in df.iterrows():
+        address = row['Address']
+        if 'Traffic Risk (T)' not in df.columns or pd.isna(row.get('Traffic Risk (T)')):
+            df.at[idx, 'Traffic Risk (T)'] = 0.5
+        if 'U-Turn Required (U)' not in df.columns or pd.isna(row.get('U-Turn Required (U)')):
+            try:
+                directions = gmaps.directions("school address", address, mode="driving")
+                u_turn = 0
+                for leg in directions:
+                    for step in leg['legs'][0]['steps']:
+                        if step.get('maneuver') in ['uturn-left', 'uturn-right']:
+                            u_turn = 1
+                df.at[idx, 'U-Turn Required (U)'] = u_turn
+            except:
+                df.at[idx, 'U-Turn Required (U)'] = 0
+        if 'Construction Risk (C)' not in df.columns or pd.isna(row.get('Construction Risk (C)')):
+            df.at[idx, 'Construction Risk (C)'] = 0.2
+    return df
+
 # === UPLOAD OR SIMULATE STOPS ===
 st.sidebar.header("1. Load Stops")
 option = st.sidebar.radio("Select input mode:", ["Upload CSV", "Simulate from School Name"])
@@ -39,6 +80,17 @@ else:
         })
     else:
         st.stop()
+
+if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
+    if "Address" in df_stops.columns:
+        lats, lons = geocode_addresses(df_stops["Address"])
+        df_stops["lat"] = lats
+        df_stops["lon"] = lons
+    else:
+        st.warning("📍 No Address column found, and no lat/lon available.")
+
+with st.spinner("Auto-generating missing safety factors..."):
+    df_stops = autofill_missing_fields(df_stops)
 
 # === SAFETY SCORE SIMULATION ===
 def calculate_ses(row):
