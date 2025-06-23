@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import streamlit as st
+import pandas as pd
 import googlemaps
 import folium
 from folium.plugins import MarkerCluster
@@ -14,7 +16,6 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS SETUP ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === ADDRESS GEOCODING ===
 @st.cache_data(show_spinner="Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -34,28 +35,49 @@ def geocode_addresses(addresses):
         time.sleep(0.2)
     return latitudes, longitudes
 
-# === AUTO FILL MISSING FACTORS ===
+# === AUTO-FILL SAFETY FACTORS ===
 def autofill_missing_fields(df):
     for idx, row in df.iterrows():
-        address = row['Address']
+        address = row.get("Address", "Unknown Address")
         if 'Traffic Risk (T)' not in df.columns or pd.isna(row.get('Traffic Risk (T)')):
             df.at[idx, 'Traffic Risk (T)'] = 0.5
         if 'U-Turn Required (U)' not in df.columns or pd.isna(row.get('U-Turn Required (U)')):
             try:
                 directions = gmaps.directions("school address", address, mode="driving")
-                u_turn = 0
-                for leg in directions:
-                    for step in leg['legs'][0]['steps']:
-                        if step.get('maneuver') in ['uturn-left', 'uturn-right']:
-                            u_turn = 1
-                df.at[idx, 'U-Turn Required (U)'] = u_turn
+                u_turn = any(
+                    step.get('maneuver') in ['uturn-left', 'uturn-right']
+                    for leg in directions
+                    for step in leg['legs'][0]['steps']
+                )
+                df.at[idx, 'U-Turn Required (U)'] = int(u_turn)
             except:
                 df.at[idx, 'U-Turn Required (U)'] = 0
         if 'Construction Risk (C)' not in df.columns or pd.isna(row.get('Construction Risk (C)')):
             df.at[idx, 'Construction Risk (C)'] = 0.2
+        if 'Visibility (V)' not in df.columns: df.at[idx, 'Visibility (V)'] = 0.6
+        if 'Lighting (L)' not in df.columns: df.at[idx, 'Lighting (L)'] = 0.5
+        if 'Pedestrian Safety (P)' not in df.columns: df.at[idx, 'Pedestrian Safety (P)'] = 0.5
+        if 'Sidewalk Quality (S)' not in df.columns: df.at[idx, 'Sidewalk Quality (S)'] = 0.5
     return df
 
-# === SELECT STOP INPUT METHOD ===
+# === SAFETY SCORING FUNCTION ===
+def calculate_ses(row):
+    weights = {
+        "V": 0.25, "L": 0.15, "T": 0.25,
+        "P": 0.2,  "S": 0.1,  "C": 0.05, "U": 0.05
+    }
+    adjusted = {
+        "V": row.get("Visibility (V)", 0.5),
+        "L": row.get("Lighting (L)", 0.5),
+        "T": 1 - row.get("Traffic Risk (T)", 0.5),
+        "P": row.get("Pedestrian Safety (P)", 0.5),
+        "S": row.get("Sidewalk Quality (S)", 0.5),
+        "C": 1 - row.get("Construction Risk (C)", 0.2),
+        "U": 1 - row.get("U-Turn Required (U)", 0)
+    }
+    return sum(weights[k] * adjusted[k] for k in weights)
+
+# === UPLOAD OR SIMULATE STOPS ===
 st.sidebar.header("1. Load Stops")
 option = st.sidebar.radio("Select input mode:", ["Upload CSV", "Simulate from School Name"])
 df_stops = None
@@ -74,18 +96,14 @@ if option == "Upload CSV":
             st.stop()
 
 elif option == "Simulate from School Name":
-    from simulator import simulate_district
     school_name = st.sidebar.text_input("Enter School Name", "Northville High School, MI")
     if st.sidebar.button("Simulate Stops"):
         try:
+            from simulator import simulate_district
             sim = simulate_district(school_name)
-            stops = sim["stops"]
-            df_stops = pd.DataFrame({
-                "Stop Name": [f"Stop {i+1}" for i in range(len(stops))],
-                "lat": [pt.y for pt in stops],
-                "lon": [pt.x for pt in stops],
-                "Address": [school_name] * len(stops)
-            })
+            df_stops = sim["stops"]
+            if df_stops is None or "lat" not in df_stops.columns:
+                raise ValueError("Simulation did not return valid stop coordinates.")
             st.success(f"✅ Simulated stops generated for: {school_name}")
         except Exception as e:
             st.error(f"❌ Simulation failed: {e}")
@@ -94,7 +112,7 @@ elif option == "Simulate from School Name":
         st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
-# === ENSURE LAT/LON AND SAFETY FACTORS EXIST ===
+# === CLEAN GEO ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         lats, lons = geocode_addresses(df_stops["Address"])
@@ -104,19 +122,15 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
         st.warning("📍 No Address column found, and no lat/lon available.")
         st.stop()
 
-with st.spinner("Auto-generating missing safety factors..."):
+# === SAFETY FACTORS + SES ===
+with st.spinner("🔍 Estimating safety scores..."):
     df_stops = autofill_missing_fields(df_stops)
+    df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
+    df_stops["Safety Rating"] = df_stops["SES Score"].apply(
+        lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
+    )
 
-# === SAFETY SCORE LOGIC ===
-def calculate_ses(row):
-    return 0.8 - 0.01 * int(row.name)  # mock SES scoring
-
-df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
-df_stops["Safety Rating"] = df_stops["SES Score"].apply(
-    lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
-)
-
-# === MAP VIEW ===
+# === MAP ===
 st.subheader("📍 Stop Safety Map")
 if "lat" in df_stops.columns and "lon" in df_stops.columns:
     m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
@@ -129,13 +143,11 @@ if "lat" in df_stops.columns and "lon" in df_stops.columns:
             color=color,
             fill=True,
             fill_opacity=0.7,
-            popup=f"{row['Stop Name']}: {row['Safety Rating']}"
+            popup=f"{row.get('Stop Name', 'Unnamed')}: {row['Safety Rating']}"
         ).add_to(cluster)
-    st_folium(m, width=800)
-else:
-    st.warning("No lat/lon data available to display map.")
+    st_folium(m, width=900)
 
-# === FLEET MIX OPTIMIZATION ===
+# === OPTIMIZER ===
 st.subheader("🚐 Fleet Mix Optimizer")
 if st.button("Optimize Fleet Mix"):
     total_stops = len(df_stops)
@@ -147,7 +159,7 @@ if st.button("Optimize Fleet Mix"):
     for buses in range(0, 4):
         for vans in range(1, 7):
             if buses * bus_capacity + vans * van_capacity >= total_stops:
-                cost = buses * 200 + vans * 120  # daily cost
+                cost = buses * 200 + vans * 120
                 if cost < lowest_cost:
                     lowest_cost = cost
                     best_mix = (buses, vans)
@@ -161,16 +173,13 @@ if st.button("Optimize Fleet Mix"):
     else:
         st.error("❌ No valid fleet combination found.")
 
-# === ROUTE COVERAGE STATS ===
+# === COVERAGE SUMMARY ===
 st.subheader("🧭 Route Coverage Summary")
 if "SES Score" in df_stops:
-    high_risk = df_stops[df_stops["Safety Rating"] == "Unsafe"].shape[0]
-    med_risk = df_stops[df_stops["Safety Rating"] == "Acceptable"].shape[0]
-    low_risk = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
-    st.write(f"🔴 Unsafe Stops: {high_risk}")
-    st.write(f"🟠 Acceptable Stops: {med_risk}")
-    st.write(f"🟢 Safe Stops: {low_risk}")
+    st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
+    st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
+    st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
 
-# === STOP TABLE ===
+# === DATA TABLE ===
 st.subheader("📋 Stop Table")
 st.dataframe(df_stops, use_container_width=True)
