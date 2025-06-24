@@ -1,3 +1,5 @@
+# utils.py
+
 import googlemaps
 import geopandas as gpd
 import pandas as pd
@@ -9,7 +11,7 @@ import osmnx as ox
 import streamlit as st
 
 # === CONFIG ===
-DEFAULT_UTM = 26917
+DEFAULT_UTM = 26917  # Michigan UTM Zone
 
 # === GOOGLE MAPS SETUP ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
@@ -56,19 +58,23 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
     building_centroids = buildings.centroid
     building_centroids = building_centroids[building_centroids.geometry.notnull()]
 
-    # Transform to UTM
+    # Project to UTM
     fwd, rev = get_transformers()
     building_centroids_utm = building_centroids.to_crs(epsg=DEFAULT_UTM)
     school_point = Point(school_point_latlon[1], school_point_latlon[0])
     school_utm = transform(fwd, school_point)
 
-    walk_buffer = 400
+    walk_buffer = 400  # meters
     filtered = building_centroids_utm[building_centroids_utm.distance(school_utm) > walk_buffer]
 
     if len(filtered) < n:
         st.warning("⚠️ Not enough valid building points far from school; sampling what’s available.")
         sampled = filtered
     else:
+        sampled = filtered.sample(n=n)
+
+    stops = [transform(rev, pt) for pt in sampled.geometry]
+    return pd.DataFrame({"lat": [p.y for p in stops], "lon": [p.x for p in stops]})
         sampled = filtered.sample(n=n)
 
     stops = [transform(rev, pt) for pt in sampled.geometry]

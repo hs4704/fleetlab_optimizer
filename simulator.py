@@ -1,41 +1,45 @@
-#===Builds the stop layout and simulates the school district zone===
+# simulator.py
 
-import geopandas as gpd
 import pandas as pd
-from shapely.ops import transform
 from shapely.geometry import Point
-from utils import geocode_address, get_district_geometry, generate_stops
+from utils import geocode_address, get_district_geometry, generate_weighted_stops
+import pyproj
 
-def simulate_district(school_name, student_df=None):
-    school_latlon = geocode_address(school_name)
-    district_polygon, utm_crs = get_district_geometry(school_latlon)
-    school_point = Point(school_latlon[::-1])  # (lon, lat)
+def simulate_district(school_name, n_stops=50):
+    # 1. Geocode school location
+    lat, lon = geocode_address(school_name)
+    school_point = Point(lon, lat)
 
-    if student_df is None:
-        stops = generate_stops(district_polygon, school_point, utm_crs)
-    else:
-        # TODO: Add geocoding + clustering real addresses later
-        stops = generate_stops(district_polygon, school_point, utm_crs)
+    # 2. Get school district polygon and projection
+    district_polygon, district_name, _ = get_district_geometry(lat, lon)
+
+    # 3. Generate weighted building-based stop locations
+    stops_df = generate_weighted_stops(district_polygon, (lat, lon), n=n_stops)
+
+    # 4. Convert stops to shapely Points in UTM
+    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:26917", always_xy=True).transform
+    stops_utm = [Point(transformer(pt[1], pt[0])) for pt in zip(stops_df["lat"], stops_df["lon"])]
 
     return {
         "school": school_point,
         "district": district_polygon,
-        "stops": stops,
-        "utm_crs": utm_crs
+        "stops": stops_utm,
+        "utm_crs": 26917,
+        "metadata": {
+            "school_name": school_name,
+            "district_name": district_name,
+            "num_stops": len(stops_df)
+        }
     }
-def generate_stops_for_school(school_name):
-    """Public interface to generate a DataFrame of stops for a given school name."""
-    sim = simulate_district(school_name)
-    stops = sim["stops"]
-    
-    # Ensure it's a GeoDataFrame and convert geometry to lat/lon
-    if not isinstance(stops, gpd.GeoDataFrame):
-        raise ValueError("stops is not a GeoDataFrame.")
 
-    stops = stops.to_crs(epsg=4326)  # WGS84 lat/lon
-    stops["lat"] = stops.geometry.y
-    stops["lon"] = stops.geometry.x
-    stops["Stop Name"] = [f"Simulated Stop {i+1}" for i in range(len(stops))]
-    stops["Address"] = school_name
-
-    return stops[["Stop Name", "lat", "lon", "Address"]]
+def generate_stops_for_school(school_name, n=50):
+    sim = simulate_district(school_name, n_stops=n)
+    # Convert UTM Points back to lat/lon
+    project_back = pyproj.Transformer.from_crs(sim["utm_crs"], "EPSG:4326", always_xy=True).transform
+    stops_latlon = [transform(project_back, pt) for pt in sim["stops"]]
+    return pd.DataFrame({
+        "lat": [pt.y for pt in stops_latlon],
+        "lon": [pt.x for pt in stops_latlon],
+        "Stop Name": [f"Stop {i+1}" for i in range(len(stops_latlon))],
+        "Address": [sim["metadata"]["school_name"]]*len(stops_latlon)
+    })

@@ -1,5 +1,5 @@
-import streamlit as st
-import pandas as pd
+
+# app.py
 import streamlit as st
 import pandas as pd
 import googlemaps
@@ -8,6 +8,7 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 import time
+from simulator import generate_stops_for_school
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
@@ -77,7 +78,7 @@ def calculate_ses(row):
     }
     return sum(weights[k] * adjusted[k] for k in weights)
 
-# === UPLOAD OR SIMULATE STOPS ===
+# === STEP 1: LOAD STOPS ===
 st.sidebar.header("1. Load Stops")
 option = st.sidebar.radio("Select input mode:", ["Upload CSV", "Simulate from School Name"])
 df_stops = None
@@ -94,14 +95,11 @@ if option == "Upload CSV":
         except Exception as e:
             st.error(f"❌ Failed to load sample stops: {e}")
             st.stop()
-
 elif option == "Simulate from School Name":
     school_name = st.sidebar.text_input("Enter School Name", "Northville High School, MI")
     if st.sidebar.button("Simulate Stops"):
         try:
-            from simulator import simulate_district
-            sim = simulate_district(school_name)
-            df_stops = sim["stops"]
+            df_stops = generate_stops_for_school(school_name)
             if df_stops is None or "lat" not in df_stops.columns:
                 raise ValueError("Simulation did not return valid stop coordinates.")
             st.success(f"✅ Simulated stops generated for: {school_name}")
@@ -112,7 +110,7 @@ elif option == "Simulate from School Name":
         st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
-# === CLEAN GEO ===
+# === GEOLOCATION FIX ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         lats, lons = geocode_addresses(df_stops["Address"])
@@ -130,7 +128,7 @@ with st.spinner("🔍 Estimating safety scores..."):
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
 
-# === MAP ===
+# === MAP VIEW ===
 st.subheader("📍 Stop Safety Map")
 if "lat" in df_stops.columns and "lon" in df_stops.columns:
     m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
