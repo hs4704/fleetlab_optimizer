@@ -9,6 +9,7 @@ from shapely.geometry import Point
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
+from shapely.geometry import Polygon, MultiPolygon
 
 # === CONFIG ===
 DEFAULT_UTM = 26917  # Michigan UTM Zone
@@ -30,9 +31,9 @@ def geocode_school_address(address):
     return geocode_address(address)
 
 # === DISTRICT MATCHING ===
+
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     districts = gpd.read_file(district_geojson)
-    districts['DCode'] = districts['DCode'].astype(str).str.zfill(4)
     districts = districts.to_crs(epsg=4326)
 
     point = Point(lon, lat)
@@ -43,8 +44,11 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
         raise ValueError("❌ No matching school district found for the given location.")
 
     district_row = joined.iloc[0]
-    return district_row['geometry'], district_row['Name'], district_row['DCode']
+    geometry = district_row['geometry']
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
+    return geometry, district_row['Name'], district_row['DCode']
 # === PROJECTION UTILITIES ===
 def get_transformers():
     fwd = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{DEFAULT_UTM}", always_xy=True).transform
