@@ -1,15 +1,14 @@
-# utils.py
+#utils.py
 
 import googlemaps
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon, MultiPolygon
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
-from shapely.geometry import Polygon, MultiPolygon
 
 # === CONFIG ===
 DEFAULT_UTM = 26917  # Michigan UTM Zone
@@ -31,7 +30,6 @@ def geocode_school_address(address):
     return geocode_address(address)
 
 # === DISTRICT MATCHING ===
-
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     districts = gpd.read_file(district_geojson)
     districts = districts.to_crs(epsg=4326)
@@ -49,6 +47,7 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
         raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
     return geometry, district_row['Name'], district_row['DCode']
+
 # === PROJECTION UTILITIES ===
 def get_transformers():
     fwd = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{DEFAULT_UTM}", always_xy=True).transform
@@ -75,10 +74,6 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
         st.warning("⚠️ Not enough valid building points far from school; sampling what’s available.")
         sampled = filtered
     else:
-        sampled = filtered.sample(n=n)
-
-    stops = [transform(rev, pt) for pt in sampled.geometry]
-    return pd.DataFrame({"lat": [p.y for p in stops], "lon": [p.x for p in stops]})
         sampled = filtered.sample(n=n)
 
     stops = [transform(rev, pt) for pt in sampled.geometry]

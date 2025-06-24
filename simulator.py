@@ -2,7 +2,7 @@
 
 import pandas as pd
 from shapely.geometry import Point
-from utils import geocode_address, get_district_geometry, generate_weighted_stops
+from fleetlab_optimizer.utils import geocode_address, get_district_geometry, generate_weighted_stops
 import pyproj
 
 def simulate_district(school_name, n_stops=50):
