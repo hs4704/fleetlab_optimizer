@@ -4,3 +4,7 @@ googlemaps
 folium
 pandas
 matplotlib
+geopandas
+shapely
+pyproj
+osmnx
