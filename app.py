@@ -8,7 +8,7 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 import time
-from fleetlab_optimizer.simulator import simulate_district
+from simulator import simulate_district
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
