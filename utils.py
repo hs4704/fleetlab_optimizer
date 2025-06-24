@@ -14,12 +14,18 @@ DEFAULT_UTM = 26917
 # === GOOGLE MAPS SETUP ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === GEOCODING ===
+# === GENERAL GEOCODING ===
+def geocode_address(address):
+    geocode = gmaps.geocode(address)
+    if not geocode:
+        raise ValueError(f"❌ Could not geocode address: {address}")
+    loc = geocode[0]['geometry']['location']
+    return loc['lat'], loc['lng']
+
+# === SCHOOL GEOCODING (CACHED) ===
 @st.cache_data(show_spinner="Geocoding school address...")
 def geocode_school_address(address):
-    geocode = gmaps.geocode(address)
-    location = geocode[0]['geometry']['location']
-    return location['lat'], location['lng']
+    return geocode_address(address)
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
@@ -30,6 +36,10 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{'geometry': point}], crs="EPSG:4326")
     joined = gpd.sjoin(point_gdf, districts, how='left', predicate='within')
+
+    if joined.empty:
+        raise ValueError("❌ No matching school district found for the given location.")
+
     district_row = joined.iloc[0]
     return district_row['geometry'], district_row['Name'], district_row['DCode']
 
