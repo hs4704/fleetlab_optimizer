@@ -1,14 +1,14 @@
-#utils.py
+# utils.py
 
 import googlemaps
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point, Polygon, MultiPolygon
-from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
+from shapely.geometry import Point, Polygon, MultiPolygon, GeometryCollection
+from shapely.ops import transform, unary_union
 
 # === CONFIG ===
 DEFAULT_UTM = 26917  # Michigan UTM Zone
@@ -24,10 +24,19 @@ def geocode_address(address):
     loc = geocode[0]['geometry']['location']
     return loc['lat'], loc['lng']
 
-# === SCHOOL GEOCODING (CACHED) ===
+# === CACHED SCHOOL GEOCODING ===
 @st.cache_data(show_spinner="Geocoding school address...")
 def geocode_school_address(address):
     return geocode_address(address)
+
+# === CLEAN INVALID GEOMETRIES ===
+def extract_valid_polygon(geometry):
+    if isinstance(geometry, (Polygon, MultiPolygon)):
+        return geometry
+    elif isinstance(geometry, GeometryCollection):
+        polys = [g for g in geometry.geoms if isinstance(g, (Polygon, MultiPolygon))]
+        return unary_union(polys) if polys else None
+    return None
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
@@ -42,11 +51,11 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
         raise ValueError("❌ No matching school district found for the given location.")
 
     district_row = joined.iloc[0]
-    geometry = district_row['geometry']
-    if not isinstance(geometry, (Polygon, MultiPolygon)):
+    cleaned_geom = extract_valid_polygon(district_row['geometry'])
+    if cleaned_geom is None:
         raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
-    return geometry, district_row['Name'], district_row['DCode']
+    return cleaned_geom, district_row['Name'], district_row['DCode']
 
 # === PROJECTION UTILITIES ===
 def get_transformers():

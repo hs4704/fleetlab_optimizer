@@ -2,6 +2,7 @@
 
 import pandas as pd
 from shapely.geometry import Point
+from shapely.ops import transform
 from utils import geocode_address, get_district_geometry, generate_weighted_stops
 import pyproj
 
@@ -34,9 +35,9 @@ def simulate_district(school_name, n_stops=50):
 
 def generate_stops_for_school(school_name, n=50):
     sim = simulate_district(school_name, n_stops=n)
-    # Convert UTM Points back to lat/lon
     project_back = pyproj.Transformer.from_crs(sim["utm_crs"], "EPSG:4326", always_xy=True).transform
     stops_latlon = [transform(project_back, pt) for pt in sim["stops"]]
+
     return pd.DataFrame({
         "lat": [pt.y for pt in stops_latlon],
         "lon": [pt.x for pt in stops_latlon],
