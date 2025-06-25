@@ -1,4 +1,4 @@
-#app.py
+# app.py
 import streamlit as st
 import pandas as pd
 import googlemaps
@@ -17,7 +17,7 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === ADDRESS GEOCODING (Fallback for uploaded files) ===
+# === ADDRESS GEOCODING (Cached) ===
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -27,7 +27,7 @@ def geocode_addresses(addresses):
             if geocode:
                 loc = geocode[0]["geometry"]["location"]
                 latitudes.append(loc["lat"])
-                longitudes.append(loc["lng"])
+                longitudes.append(loc["lon"])
             else:
                 latitudes.append(None)
                 longitudes.append(None)
@@ -61,6 +61,8 @@ elif mode == "Simulate from School Name":
     if st.sidebar.button("Simulate Stops"):
         try:
             df_stops = generate_stops_for_school(school, n=n_stops)
+            if df_stops is None or df_stops.empty:
+                raise ValueError("Simulation returned no stops.")
             st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
             st.dataframe(df_stops.head())
         except Exception as e:
@@ -69,7 +71,7 @@ elif mode == "Simulate from School Name":
     else:
         st.stop()
 
-# === GEOLOCATION FALLBACK ===
+# === FALLBACK GEOLOCATION ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         lats, lons = geocode_addresses(df_stops["Address"])
@@ -78,6 +80,10 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     else:
         st.error("❌ Missing coordinates and no addresses to geocode.")
         st.stop()
+
+# === Drop invalid points (prevents blank maps) ===
+df_stops = df_stops.dropna(subset=["lat", "lon"])
+df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
 
 # === SAFETY FACTORS + SES SCORE ===
 with st.spinner("🔍 Estimating safety scores..."):
@@ -89,21 +95,24 @@ with st.spinner("🔍 Estimating safety scores..."):
 
 # === SAFETY MAP ===
 st.subheader("📍 Stop Safety Map")
-m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
-cluster = MarkerCluster().add_to(m)
-for _, row in df_stops.iterrows():
-    color = "green" if row["Safety Rating"] == "Safe" else "orange" if row["Safety Rating"] == "Acceptable" else "red"
-    folium.CircleMarker(
-        location=[row["lat"], row["lon"]],
-        radius=5,
-        color=color,
-        fill=True,
-        fill_opacity=0.7,
-        popup=f"{row.get('Stop Name', 'Stop')}: {row['Safety Rating']}"
-    ).add_to(cluster)
-st_folium(m, width=900)
+try:
+    m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
+    cluster = MarkerCluster().add_to(m)
+    for _, row in df_stops.iterrows():
+        color = "green" if row["Safety Rating"] == "Safe" else "orange" if row["Safety Rating"] == "Acceptable" else "red"
+        folium.CircleMarker(
+            location=[row["lat"], row["lon"]],
+            radius=5,
+            color=color,
+            fill=True,
+            fill_opacity=0.7,
+            popup=f"{row.get('Stop Name', 'Stop')}: {row['Safety Rating']}"
+        ).add_to(cluster)
+    st_folium(m, width=900)
+except Exception as e:
+    st.error(f"❌ Map rendering failed: {e}")
 
-# === FLEET MIX OPTIMIZATION ===
+# === FLEET MIX OPTIMIZER ===
 st.subheader("🚐 Fleet Mix Optimizer")
 
 bus_capacity = 20
