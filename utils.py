@@ -29,22 +29,26 @@ def geocode_school_address(address):
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
+    # Load and ensure it's in EPSG:4326
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
 
+    # Filter to only Polygon or MultiPolygon geometries
+    districts = districts[districts.geometry.type.isin(["Polygon", "MultiPolygon"])]
+
+    # Create point from lat/lon
     point = Point(lon, lat)
-    point_gdf = gpd.GeoDataFrame([{'geometry': point}], crs="EPSG:4326")
-    joined = gpd.sjoin(point_gdf, districts, how='left', predicate='within')
+    point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
+
+    # Spatial join
+    joined = gpd.sjoin(point_gdf, districts, how="left", predicate="within")
 
     if joined.empty:
         raise ValueError("❌ No matching school district found for the selected location.")
-    
-    geometry = joined.iloc[0].geometry
-    st.warning(f"DEBUG: Geometry type is {type(geometry)}")
 
-    if not isinstance(geometry, (Polygon, MultiPolygon)):
-        raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
-
-    return geometry, joined.iloc[0]['Name'], joined.iloc[0]['DCode']
+    # Extract geometry and metadata safely
+    row = joined.iloc[0]
+    st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
+    return row.geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 
 # === PROJECTION TRANSFORMERS ===
 def get_transformers():
@@ -59,6 +63,9 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
         buildings = ox.features_from_polygon(district_poly_latlon, tags)
     except Exception as e:
         raise ValueError(f"❌ Could not fetch buildings from OpenStreetMap: {e}")
+
+    if buildings.empty:
+        raise ValueError("❌ No buildings found within district boundary from OSM.")
 
     building_centroids = buildings.centroid
     building_centroids = building_centroids[building_centroids.geometry.notnull()]
@@ -84,5 +91,5 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
     return pd.DataFrame({
         "lat": [p.y for p in stops],
         "lon": [p.x for p in stops]
-    })
+    }) 
 
