@@ -39,6 +39,7 @@ def extract_valid_polygon(geometry):
     return None
 
 # === DISTRICT MATCHING ===
+
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     districts = gpd.read_file(district_geojson)
     districts = districts.to_crs(epsg=4326)
@@ -50,12 +51,22 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     if joined.empty:
         raise ValueError("❌ No matching school district found for the given location.")
 
-    district_row = joined.iloc[0]
-    cleaned_geom = extract_valid_polygon(district_row['geometry'])
-    if cleaned_geom is None:
+    raw_geom = joined.iloc[0]['geometry']
+
+    # 🧼 Clean up geometry: extract valid Polygon/MultiPolygon
+    if isinstance(raw_geom, (Polygon, MultiPolygon)):
+        cleaned = raw_geom
+    elif isinstance(raw_geom, GeometryCollection):
+        polys = [g for g in raw_geom.geoms if isinstance(g, (Polygon, MultiPolygon))]
+        if not polys:
+            raise ValueError("❌ No Polygon or MultiPolygon found in GeometryCollection.")
+        cleaned = unary_union(polys)
+    elif hasattr(raw_geom, "geometry"):
+        return get_district_geometry(raw_geom.geometry)
+    else:
         raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
-    return cleaned_geom, district_row['Name'], district_row['DCode']
+    return cleaned, joined.iloc[0]['Name'], joined.iloc[0]['DCode']
 
 # === PROJECTION UTILITIES ===
 def get_transformers():
