@@ -4,7 +4,7 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import Point, Polygon, MultiPolygon, GeometryCollection
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
@@ -29,27 +29,39 @@ def geocode_school_address(address):
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
-    # Load and ensure it's in EPSG:4326
+    # Load GeoJSON and convert to standard CRS
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
 
-    # Filter to only Polygon or MultiPolygon geometries
-    districts = districts[districts.geometry.type.isin(["Polygon", "MultiPolygon"])]
-
-    # Create point from lat/lon
+    # Create a Point geometry from lat/lon
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
 
-    # Spatial join
+    # Perform spatial join
     joined = gpd.sjoin(point_gdf, districts, how="left", predicate="within")
 
     if joined.empty:
         raise ValueError("❌ No matching school district found for the selected location.")
 
-    # Extract geometry and metadata safely
+    # Grab the matching row
     row = joined.iloc[0]
-    st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
-    return row.geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
+    geometry = row.geometry
 
+    # Handle GeometryCollection if necessary
+    if geometry.geom_type == "GeometryCollection":
+        # Try to extract the first usable Polygon
+        polys = [g for g in geometry.geoms if g.geom_type in ["Polygon", "MultiPolygon"]]
+        if not polys:
+            raise ValueError("❌ District boundary contains no usable Polygon or MultiPolygon.")
+        geometry = polys[0]
+
+    # Final type check
+    if not isinstance(geometry, (Polygon, MultiPolygon)):
+        raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
+
+    # Feedback to user
+    st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
+
+    return geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 # === PROJECTION TRANSFORMERS ===
 def get_transformers():
     fwd = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{DEFAULT_UTM}", always_xy=True).transform
