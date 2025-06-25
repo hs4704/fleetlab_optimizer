@@ -61,13 +61,14 @@ def get_transformers():
 # === STOP GENERATOR ===
 def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
     tags = {"building": True}
+
     try:
         buildings = ox.features_from_polygon(district_poly_latlon, tags)
     except Exception as e:
         raise ValueError(f"❌ Could not fetch buildings from OpenStreetMap: {e}")
 
     if buildings.empty:
-        raise ValueError("❌ No buildings found within district boundary from OSM.")
+        raise ValueError("❌ No buildings found in selected district from OpenStreetMap.")
 
     building_centroids = buildings.centroid
     building_centroids = building_centroids[building_centroids.geometry.notnull()]
@@ -82,16 +83,27 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
     walk_buffer = 400  # meters
     filtered = building_centroids_utm[building_centroids_utm.distance(school_utm) > walk_buffer]
 
+    if filtered.empty:
+        raise ValueError("❌ All buildings are too close to the school. No valid stops.")
+
     if len(filtered) < n:
-        st.warning("⚠️ Not enough valid buildings far from school. Sampling what’s available.")
+        st.warning(f"⚠️ Only {len(filtered)} stops available beyond walking distance.")
         sampled = filtered
     else:
         sampled = filtered.sample(n=n)
 
-    # Reproject back to lat/lon
-    stops = [transform(rev, pt) for pt in sampled.geometry]
+    # Convert to lat/lon
+    try:
+        stops = [transform(rev, pt) for pt in sampled.geometry]
+        latitudes = [p.y for p in stops if np.isfinite(p.y)]
+        longitudes = [p.x for p in stops if np.isfinite(p.x)]
+        if not latitudes or not longitudes:
+            raise ValueError("❌ Coordinate transformation failed.")
+    except Exception as e:
+        raise ValueError(f"❌ Failed to convert stop coordinates: {e}")
+
     return pd.DataFrame({
-        "lat": [p.y for p in stops],
-        "lon": [p.x for p in stops]
-    }) 
+        "lat": latitudes,
+        "lon": longitudes
+    })
 
