@@ -29,38 +29,40 @@ def geocode_school_address(address):
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
-    # Load GeoJSON and convert to standard CRS
+    # Load GeoJSON and convert to EPSG:4326
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
 
-    # Create a Point geometry from lat/lon
+    # Print unique geometry types in the file
+    unique_geom_types = districts.geometry.type.unique()
+    st.warning(f"📂 GeoJSON geometry types: {unique_geom_types}")
+
+    # Create a Point from lat/lon
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
 
-    # Perform spatial join
+    # Spatial join
     joined = gpd.sjoin(point_gdf, districts, how="left", predicate="within")
 
     if joined.empty:
         raise ValueError("❌ No matching school district found for the selected location.")
 
-    # Grab the matching row
+    # Get matched row
     row = joined.iloc[0]
     geometry = row.geometry
+    st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
 
-    # Handle GeometryCollection if necessary
+    # Handle GeometryCollection if needed
     if geometry.geom_type == "GeometryCollection":
-        # Try to extract the first usable Polygon
         polys = [g for g in geometry.geoms if g.geom_type in ["Polygon", "MultiPolygon"]]
         if not polys:
             raise ValueError("❌ District boundary contains no usable Polygon or MultiPolygon.")
         geometry = polys[0]
 
-    # Final type check
+    # Final check
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
-    # Feedback to user
     st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
-
     return geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 # === PROJECTION TRANSFORMERS ===
 def get_transformers():
