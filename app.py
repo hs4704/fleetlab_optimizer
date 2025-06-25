@@ -80,20 +80,16 @@ elif mode == "Simulate from School Name":
 # === Step 2: Add missing coordinates from Address ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
-        addresses = df_stops["Address"].fillna("").astype(str)
+        addresses = df_stops["Address"].fillna("").astype(str).tolist()
         lats, lons = geocode_addresses(addresses)
 
-        # Safely match DataFrame length
-        if len(lats) != len(df_stops) or len(lons) != len(df_stops):
-            st.warning("⚠️ Geocoding results mismatched. Trimming to fit.")
-            min_len = min(len(df_stops), len(lats))
-            df_stops = df_stops.iloc[:min_len].copy()
-            df_stops["lat"] = lats[:min_len]
-            df_stops["lon"] = lons[:min_len]
-        else:
-            df_stops["lat"] = lats
-            df_stops["lon"] = lons
-    else:
+        if len(lats) != len(df_stops):
+            st.error(f"❌ Geocoding failed: expected {len(df_stops)} coords but got {len(lats)}.")
+            st.stop()
+
+        df_stops = df_stops.copy()
+        df_stops["lat"] = lats
+        df_stops["lon"] = lonselse:
         st.error("❌ No lat/lon or Address available for geocoding.")
         st.stop()
 
