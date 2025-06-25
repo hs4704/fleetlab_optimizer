@@ -5,6 +5,7 @@ import googlemaps
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
+import matplotlib.pyplot as plt
 import time
 from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
@@ -16,16 +17,17 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-@st.cache_data(show_spinner="Geocoding addresses...")
+# === ADDRESS GEOCODING (Fallback for uploaded files) ===
+@st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
     for address in addresses:
         try:
             geocode = gmaps.geocode(address)
             if geocode:
-                location = geocode[0]['geometry']['location']
-                latitudes.append(location["lat"])
-                longitudes.append(location["lng"])
+                loc = geocode[0]["geometry"]["location"]
+                latitudes.append(loc["lat"])
+                longitudes.append(loc["lng"])
             else:
                 latitudes.append(None)
                 longitudes.append(None)
@@ -35,7 +37,7 @@ def geocode_addresses(addresses):
         time.sleep(0.2)
     return latitudes, longitudes
 
-# === SIDEBAR STOP LOADING ===
+# === STEP 1: LOAD STOPS ===
 st.sidebar.header("1. Load Stops")
 mode = st.sidebar.radio("Choose input mode:", ["Upload CSV", "Simulate from School Name"])
 df_stops = None
@@ -55,65 +57,91 @@ if mode == "Upload CSV":
 
 elif mode == "Simulate from School Name":
     school = st.sidebar.text_input("Enter school name", "Northville High School, MI")
-    num_stops = st.sidebar.slider("Number of stops", 10, 100, 50)
-
-    if "simulated_df" not in st.session_state:
-        st.session_state.simulated_df = None
-
+    n_stops = st.sidebar.slider("Number of stops to simulate", 20, 100, 50)
     if st.sidebar.button("Simulate Stops"):
         try:
-            df_stops = generate_stops_for_school(school, n=num_stops)
-            if df_stops is None or df_stops.empty or "lat" not in df_stops.columns:
-                raise ValueError("Simulation returned no usable stop data.")
-            st.session_state.simulated_df = df_stops
+            df_stops = generate_stops_for_school(school, n=n_stops)
             st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
+            st.dataframe(df_stops.head())
         except Exception as e:
             st.error(f"❌ Simulation failed: {e}")
             st.stop()
-    elif st.session_state.simulated_df is not None:
-        df_stops = st.session_state.simulated_df
     else:
-        st.info("📍 Enter a school and click simulate.")
         st.stop()
 
-# === GEOCODE FALLBACK ===
+# === GEOLOCATION FALLBACK ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         lats, lons = geocode_addresses(df_stops["Address"])
         df_stops["lat"] = lats
         df_stops["lon"] = lons
     else:
-        st.error("❌ Missing location data.")
+        st.error("❌ Missing coordinates and no addresses to geocode.")
         st.stop()
 
-# === SAFETY SCORING ===
-with st.spinner("🔍 Processing stop safety..."):
+# === SAFETY FACTORS + SES SCORE ===
+with st.spinner("🔍 Estimating safety scores..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
 
-# === STOP MAP ===
+# === SAFETY MAP ===
 st.subheader("📍 Stop Safety Map")
-try:
-    m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
-    cluster = MarkerCluster().add_to(m)
-    for _, row in df_stops.iterrows():
-        color = "green" if row["Safety Rating"] == "Safe" else "orange" if row["Safety Rating"] == "Acceptable" else "red"
-        folium.CircleMarker(
-            location=[row["lat"], row["lon"]],
-            radius=5,
-            color=color,
-            fill=True,
-            fill_opacity=0.7,
-            popup=f"{row.get('Stop Name', 'Stop')}: {row['Safety Rating']}"
-        ).add_to(cluster)
-    st_folium(m, width=900)
-except Exception as e:
-    st.error(f"❌ Failed to render map: {e}")
+m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
+cluster = MarkerCluster().add_to(m)
+for _, row in df_stops.iterrows():
+    color = "green" if row["Safety Rating"] == "Safe" else "orange" if row["Safety Rating"] == "Acceptable" else "red"
+    folium.CircleMarker(
+        location=[row["lat"], row["lon"]],
+        radius=5,
+        color=color,
+        fill=True,
+        fill_opacity=0.7,
+        popup=f"{row.get('Stop Name', 'Stop')}: {row['Safety Rating']}"
+    ).add_to(cluster)
+st_folium(m, width=900)
 
-# === STOP TABLE ===
+# === FLEET MIX OPTIMIZATION ===
+st.subheader("🚐 Fleet Mix Optimizer")
+
+bus_capacity = 20
+van_capacity = 7
+bus_cost = 200
+van_cost = 120
+driver_cost = 150
+
+if st.button("Optimize Fleet Mix"):
+    total_stops = len(df_stops)
+    best_mix = None
+    lowest_cost = float("inf")
+
+    for buses in range(0, 6):
+        for vans in range(1, 10):
+            capacity = buses * bus_capacity + vans * van_capacity
+            if capacity >= total_stops:
+                drivers = buses + vans
+                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+                if cost < lowest_cost:
+                    lowest_cost = cost
+                    best_mix = (buses, vans, drivers)
+
+    if best_mix:
+        buses, vans, drivers = best_mix
+        st.success(f"✅ Optimal Fleet: {buses} Buses, {vans} Vans")
+        st.markdown(f"- **Drivers Needed:** {drivers}")
+        st.markdown(f"- **Estimated Daily Cost:** `${lowest_cost:,.2f}`")
+        st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
+    else:
+        st.error("❌ No valid fleet mix found.")
+
+# === COVERAGE SUMMARY ===
+st.subheader("🧭 Route Coverage Summary")
+st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
+st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
+st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
+
+# === DATA TABLE ===
 st.subheader("📋 Stop Table")
 st.dataframe(df_stops, use_container_width=True)
-
