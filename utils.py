@@ -37,8 +37,10 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
 
     if joined.empty:
         raise ValueError("❌ No matching school district found for the selected location.")
-
+    
     geometry = joined.iloc[0].geometry
+    st.warning(f"DEBUG: Geometry type is {type(geometry)}")
+
     if not isinstance(geometry, (Polygon, MultiPolygon)):
         raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
 
