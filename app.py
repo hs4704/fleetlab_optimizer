@@ -58,17 +58,24 @@ if mode == "Upload CSV":
 elif mode == "Simulate from School Name":
     school = st.sidebar.text_input("Enter school name", "Northville High School, MI")
     n_stops = st.sidebar.slider("Number of stops to simulate", 20, 100, 50)
-    if st.sidebar.button("Simulate Stops"):
+    simulate_clicked = st.sidebar.button("Simulate Stops")
+
+    if simulate_clicked:
         try:
             df_stops = generate_stops_for_school(school, n=n_stops)
-            if df_stops is None or df_stops.empty:
-                raise ValueError("Simulation returned no stops.")
+            if df_stops.empty:
+                st.error("❌ Simulation returned no stops.")
+                st.stop()
             st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
             st.dataframe(df_stops.head())
+            st.session_state["df_stops"] = df_stops
         except Exception as e:
             st.error(f"❌ Simulation failed: {e}")
             st.stop()
+    elif "df_stops" in st.session_state:
+        df_stops = st.session_state["df_stops"]
     else:
+        st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
 # === FALLBACK GEOLOCATION ===
