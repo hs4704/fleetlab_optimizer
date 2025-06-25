@@ -17,6 +17,7 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
+# === GEOCODER FUNCTION (cached) ===
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -26,7 +27,7 @@ def geocode_addresses(addresses):
             if geocode:
                 loc = geocode[0]["geometry"]["location"]
                 latitudes.append(loc["lat"])
-                longitudes.append(loc["lon"])
+                longitudes.append(loc["lng"])
             else:
                 latitudes.append(None)
                 longitudes.append(None)
@@ -77,7 +78,7 @@ elif mode == "Simulate from School Name":
         st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
-# === Step 2: Add missing coordinates from Address ===
+# === STEP 2: Geocode if missing lat/lon ===
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         addresses = df_stops["Address"].fillna("").astype(str).tolist()
@@ -88,16 +89,17 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
             st.stop()
 
         df_stops = df_stops.copy()
-        df_stops["lat"] = lats
-        df_stops["lon"] = lonselse:
+        df_stops["lat"] = pd.Series(lats, index=df_stops.index)
+        df_stops["lon"] = pd.Series(lons, index=df_stops.index)
+    else:
         st.error("❌ No lat/lon or Address available for geocoding.")
         st.stop()
 
-# === Clean out bad coordinates ===
+# === STEP 3: Drop invalid coords (prevents map crash) ===
 df_stops = df_stops.dropna(subset=["lat", "lon"])
 df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
 
-# === Step 3: Safety Scoring ===
+# === STEP 4: Safety Scoring ===
 with st.spinner("🔍 Estimating safety scores..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
@@ -105,7 +107,7 @@ with st.spinner("🔍 Estimating safety scores..."):
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
 
-# === Safety Map ===
+# === SAFETY MAP ===
 st.subheader("📍 Stop Safety Map")
 try:
     m = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
@@ -124,7 +126,7 @@ try:
 except Exception as e:
     st.error(f"❌ Map rendering failed: {e}")
 
-# === Fleet Mix Optimizer ===
+# === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 20
 van_capacity = 7
@@ -156,12 +158,12 @@ if st.button("Optimize Fleet Mix"):
     else:
         st.error("❌ No valid fleet mix found.")
 
-# === Coverage Summary ===
+# === SUMMARY ===
 st.subheader("🧭 Route Coverage Summary")
 st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
 st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
 st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
 
-# === Stop Table ===
+# === DATA TABLE ===
 st.subheader("📋 Stop Table")
 st.dataframe(df_stops, use_container_width=True)
