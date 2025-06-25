@@ -29,40 +29,28 @@ def geocode_school_address(address):
 
 # === DISTRICT MATCHING ===
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
-    # Load GeoJSON and convert to EPSG:4326
+    # Load district data and filter valid geometries
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
+    districts = districts[districts.geometry.type.isin(["Polygon", "MultiPolygon"])]
 
-    # Print unique geometry types in the file
-    unique_geom_types = districts.geometry.type.unique()
-    st.warning(f"📂 GeoJSON geometry types: {unique_geom_types}")
+    st.warning(f"📂 GeoJSON geometry types: {districts.geometry.type.unique()}")
 
-    # Create a Point from lat/lon
+    # Create a Point geometry for the school
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
 
-    # Spatial join
-    joined = gpd.sjoin(point_gdf, districts, how="left", predicate="within")
+    # Use spatial join: find which district contains this point
+    joined = gpd.sjoin(districts, point_gdf, how="inner", predicate="contains")
 
     if joined.empty:
         raise ValueError("❌ No matching school district found for the selected location.")
 
-    # Get matched row
     row = joined.iloc[0]
     geometry = row.geometry
+
     st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
-
-    # Handle GeometryCollection if needed
-    if geometry.geom_type == "GeometryCollection":
-        polys = [g for g in geometry.geoms if g.geom_type in ["Polygon", "MultiPolygon"]]
-        if not polys:
-            raise ValueError("❌ District boundary contains no usable Polygon or MultiPolygon.")
-        geometry = polys[0]
-
-    # Final check
-    if not isinstance(geometry, (Polygon, MultiPolygon)):
-        raise ValueError("❌ District boundary is not a Polygon or MultiPolygon.")
-
     st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
+
     return geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 # === PROJECTION TRANSFORMERS ===
 def get_transformers():
