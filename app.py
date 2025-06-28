@@ -56,11 +56,14 @@ if mode == "Upload CSV":
             st.stop()
 
 elif mode == "Simulate from School Name":
-    school = st.sidebar.text_input("Enter school name", "Northville High School, MI")
+    school = st.sidebar.text_input("Enter school name", "")
     n_stops = st.sidebar.slider("Number of stops to simulate", 20, 100, 50)
     simulate_clicked = st.sidebar.button("Simulate Stops")
 
     if simulate_clicked:
+        if not school.strip():
+            st.error("❌Please enter a school name before simulating.")
+            st.stop()
         try:
             df_stops = generate_stops_for_school(school, n=n_stops)
             if df_stops.empty:
