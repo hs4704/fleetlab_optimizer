@@ -103,9 +103,12 @@ def detect_uturn_needed(origin_lat, origin_lon, dest_lat, dest_lon):
 
     steps = directions[0]['legs'][0]['steps']
     for step in steps:
+        maneuver = step.get('maneuver', '').lower()
         instruction = step.get('html_instructions', '').lower()
         print("[U-Turn DEBUG] Instruction:", instruction)
-        if "u-turn" in instruction:
+        print("[U-Turn DEBUG] Maneuver:", maneuver)
+
+        if "u-turn" in instruction or "uturn" in maneuver:
             print("[U-Turn DETECTED]")
             return True
 
