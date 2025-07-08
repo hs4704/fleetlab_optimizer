@@ -138,7 +138,7 @@ def generate_stops_for_school(school_name, n=50):
 
             addresses.append(addr)
             risks.append(risk)
-            uturns.append("Yes" if needs_uturn else "No")
+            uturns.append(1 if needs_uturn else 0)
             time.sleep(0.1)
 
     return pd.DataFrame({
@@ -147,5 +147,5 @@ def generate_stops_for_school(school_name, n=50):
         "Stop Name": [f"Stop {i+1}" for i in range(len(lats))],
         "Address": addresses,
         "Traffic Risk (T)": risks,
-        "U-Turn Required (U)": [1 if u == "Yes" else 0 for u in uturns]
+        "U-Turn Required (U)": uturns
     })

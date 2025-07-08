@@ -128,8 +128,8 @@ def autofill_missing_fields(df):
 # === SES CALCULATOR ===
 def calculate_ses(row):
     weights = {
-        "V": 0.25, "L": 0.15, "T": 0.25,
-        "P": 0.2,  "S": 0.1,  "C": 0.05, "U": 0.05
+        "V": 0.20, "L": 0.10, "T": 0.30,
+        "P": 0.15,  "S": 0.10,  "C": 0.10, "U": 0.05
     }
     adjusted = {
         "V": row.get("Visibility (V)", 0.5),
