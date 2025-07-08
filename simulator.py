@@ -19,17 +19,11 @@ gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
 # === STEP 1: Main simulation ===
 def simulate_district(school_name, n_stops=50):
-    # Geocode the school
     lat, lon = geocode_address(school_name)
     school_point = Point(lon, lat)
-
-    # Get the school district geometry
     district_polygon, district_name, _ = get_district_geometry(lat, lon)
-
-    # Generate realistic stop locations from building centroids
     stops_df = generate_weighted_stops(district_polygon, (lat, lon), n=n_stops)
 
-    # Convert to UTM points for projection logic
     transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{DEFAULT_UTM}", always_xy=True).transform
     stops_utm = [Point(transformer(pt[1], pt[0])) for pt in zip(stops_df["lat"], stops_df["lon"])]
 
@@ -57,19 +51,17 @@ def reverse_geocode(lat, lon):
     return "Unknown Address"
 
 
-# === STEP 3: Score traffic risk based on road proximity ===
+# === STEP 3: Estimate traffic risk based on OSM roads ===
 def estimate_traffic_risk(lat, lon):
     try:
         print(f"[DEBUG] Estimating traffic risk at ({lat}, {lon})")
         point = Point(lon, lat)
-        buffer_dist = 75  # meters
+        buffer_dist = 75
 
-        # Download nearby roads
         roads = ox.features_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
         print(f"[DEBUG] Found {len(roads)} road segments")
 
         if roads.empty:
-            print("[DEBUG] No roads found — assigning low risk")
             return 0.3
 
         road_types = roads["highway"].dropna().tolist()
@@ -77,10 +69,7 @@ def estimate_traffic_risk(lat, lon):
 
         all_types = []
         for r in road_types:
-            if isinstance(r, list):
-                all_types.extend(r)
-            else:
-                all_types.append(r)
+            all_types.extend(r if isinstance(r, list) else [r])
 
         score = 0.3
         for rtype in all_types:
@@ -96,14 +85,31 @@ def estimate_traffic_risk(lat, lon):
             elif "residential" in rtype:
                 score = max(score, 0.3)
 
-        print(f"[DEBUG] Final traffic risk score: {score}")
         return score
 
     except Exception as e:
         print(f"[Traffic Risk ERROR] {e}")
         return 0.5
 
-# === STEP 4: Final generation wrapper ===
+
+# === STEP 4: Detect if U-turn is needed ===
+def detect_uturn_needed(origin_lat, origin_lon, dest_lat, dest_lon):
+    try:
+        directions = gmaps.directions((origin_lat, origin_lon), (dest_lat, dest_lon), mode="driving")
+        if not directions:
+            return False
+        steps = directions[0]['legs'][0]['steps']
+        for step in steps:
+            instruction = step.get('html_instructions', '').lower()
+            if "u-turn" in instruction:
+                return True
+        return False
+    except Exception as e:
+        print(f"[U-Turn ERROR] {e}")
+        return False
+
+
+# === STEP 5: Final generation wrapper ===
 def generate_stops_for_school(school_name, n=50):
     sim = simulate_district(school_name, n_stops=n)
     project_back = pyproj.Transformer.from_crs(sim["utm_crs"], "EPSG:4326", always_xy=True).transform
@@ -112,14 +118,20 @@ def generate_stops_for_school(school_name, n=50):
     lats = [pt.y for pt in stops_latlon]
     lons = [pt.x for pt in stops_latlon]
 
-    addresses, risks = [], []
+    addresses, risks, uturns = [], [], []
 
-    with st.spinner("🗺️ Reverse geocoding & scoring traffic risk..."):
+    school_lat = sim["school"].y
+    school_lon = sim["school"].x
+
+    with st.spinner("🗺️ Reverse geocoding, traffic risk, U-turn detection..."):
         for lat, lon in zip(lats, lons):
             addr = reverse_geocode(lat, lon)
             risk = estimate_traffic_risk(lat, lon)
+            needs_uturn = detect_uturn_needed(lat, lon, school_lat, school_lon)
+
             addresses.append(addr)
             risks.append(risk)
+            uturns.append("Yes" if needs_uturn else "No")
             time.sleep(0.1)
 
     return pd.DataFrame({
@@ -127,5 +139,6 @@ def generate_stops_for_school(school_name, n=50):
         "lon": lons,
         "Stop Name": [f"Stop {i+1}" for i in range(len(lats))],
         "Address": addresses,
-        "Traffic Risk (T)": risks
+        "Traffic Risk (T)": risks,
+        "U-Turn Needed": uturns
     })
