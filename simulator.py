@@ -38,6 +38,12 @@ def simulate_district(school_name, n_stops=50):
             "num_stops": len(stops_df)
         }
     }
+if __name__ == "__main__":
+    # Test a scenario with likely U-turn
+    print("Testing U-turn scenario:")
+    lat1, lon1 = 42.331, -83.045  # Near Detroit
+    lat2, lon2 = 42.331, -83.050  # Slightly west — may trigger U-turn
+    print("U-Turn needed?", detect_uturn_needed(lat1, lon1, lat2, lon2))
 
 
 # === STEP 2: Reverse geocoding helper ===
