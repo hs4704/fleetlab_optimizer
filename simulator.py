@@ -65,15 +65,22 @@ def estimate_traffic_risk(lat, lon):
         roads = ox.geometries_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
 
         if roads.empty:
-            return 0.3  # No major roads nearby → low risk
+            return 0.3  # No roads = low risk
 
-        # Score by road type
-        road_types = roads["highway"].dropna().astype(str).tolist()
-        score = 0.3  # base
+        road_types = roads["highway"].dropna().tolist()
+        all_types = []
 
-        for rtype in road_types:
+        for r in road_types:
+            if isinstance(r, list):
+                all_types.extend(r)
+            else:
+                all_types.append(r)
+
+        score = 0.3
+        for rtype in all_types:
+            rtype = str(rtype).lower()
             if "motorway" in rtype:
-                return 1.0  # Highest risk
+                return 1.0
             elif "primary" in rtype:
                 score = max(score, 0.8)
             elif "secondary" in rtype:
@@ -85,9 +92,8 @@ def estimate_traffic_risk(lat, lon):
 
         return score
     except Exception as e:
-        print(f"Traffic risk estimation failed: {e}")
+        print(f"[Traffic Risk ERROR] {e}")
         return 0.5
-
 
 # === STEP 4: Final generation wrapper ===
 def generate_stops_for_school(school_name, n=50):
