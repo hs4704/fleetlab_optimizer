@@ -1,37 +1,43 @@
 # simulator.py
 
 import pandas as pd
+import numpy as np
+import pyproj
+import time
+import googlemaps
+import streamlit as st
+import osmnx as ox
+
 from shapely.geometry import Point
 from shapely.ops import transform
 from utils import geocode_address, get_district_geometry, generate_weighted_stops
-import pyproj
-import googlemaps
-import streamlit as st
-import time
 
-# Initialize Google Maps client
+# === CONFIG ===
+DEFAULT_UTM = 26917
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
+
+# === STEP 1: Main simulation ===
 def simulate_district(school_name, n_stops=50):
-    # 1. Geocode school location
+    # Geocode the school
     lat, lon = geocode_address(school_name)
     school_point = Point(lon, lat)
 
-    # 2. Get school district polygon and projection
+    # Get the school district geometry
     district_polygon, district_name, _ = get_district_geometry(lat, lon)
 
-    # 3. Generate weighted building-based stop locations
+    # Generate realistic stop locations from building centroids
     stops_df = generate_weighted_stops(district_polygon, (lat, lon), n=n_stops)
 
-    # 4. Convert stops to shapely Points in UTM
-    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:26917", always_xy=True).transform
+    # Convert to UTM points for projection logic
+    transformer = pyproj.Transformer.from_crs("EPSG:4326", f"EPSG:{DEFAULT_UTM}", always_xy=True).transform
     stops_utm = [Point(transformer(pt[1], pt[0])) for pt in zip(stops_df["lat"], stops_df["lon"])]
 
     return {
         "school": school_point,
         "district": district_polygon,
         "stops": stops_utm,
-        "utm_crs": 26917,
+        "utm_crs": DEFAULT_UTM,
         "metadata": {
             "school_name": school_name,
             "district_name": district_name,
@@ -39,6 +45,8 @@ def simulate_district(school_name, n_stops=50):
         }
     }
 
+
+# === STEP 2: Reverse geocoding helper ===
 def reverse_geocode(lat, lon):
     try:
         result = gmaps.reverse_geocode((lat, lon))
@@ -48,6 +56,40 @@ def reverse_geocode(lat, lon):
         print(f"Reverse geocoding failed: {e}")
     return "Unknown Address"
 
+
+# === STEP 3: Score traffic risk based on road proximity ===
+def estimate_traffic_risk(lat, lon):
+    try:
+        point = Point(lon, lat)
+        buffer_dist = 75  # meters
+        roads = ox.geometries_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
+
+        if roads.empty:
+            return 0.3  # No major roads nearby → low risk
+
+        # Score by road type
+        road_types = roads["highway"].dropna().astype(str).tolist()
+        score = 0.3  # base
+
+        for rtype in road_types:
+            if "motorway" in rtype:
+                return 1.0  # Highest risk
+            elif "primary" in rtype:
+                score = max(score, 0.8)
+            elif "secondary" in rtype:
+                score = max(score, 0.6)
+            elif "tertiary" in rtype:
+                score = max(score, 0.5)
+            elif "residential" in rtype:
+                score = max(score, 0.3)
+
+        return score
+    except Exception as e:
+        print(f"Traffic risk estimation failed: {e}")
+        return 0.5
+
+
+# === STEP 4: Final generation wrapper ===
 def generate_stops_for_school(school_name, n=50):
     sim = simulate_district(school_name, n_stops=n)
     project_back = pyproj.Transformer.from_crs(sim["utm_crs"], "EPSG:4326", always_xy=True).transform
@@ -56,24 +98,20 @@ def generate_stops_for_school(school_name, n=50):
     lats = [pt.y for pt in stops_latlon]
     lons = [pt.x for pt in stops_latlon]
 
-    # Reverse geocode all lat/lon points to get stop addresses
-    addresses = []
-    with st.spinner("🗺️ Reverse geocoding simulated stops..."):
+    addresses, risks = [], []
+
+    with st.spinner("🗺️ Reverse geocoding & scoring traffic risk..."):
         for lat, lon in zip(lats, lons):
             addr = reverse_geocode(lat, lon)
+            risk = estimate_traffic_risk(lat, lon)
             addresses.append(addr)
-            time.sleep(0.1)  # avoid rate limits
+            risks.append(risk)
+            time.sleep(0.1)
 
     return pd.DataFrame({
         "lat": lats,
         "lon": lons,
         "Stop Name": [f"Stop {i+1}" for i in range(len(lats))],
-        "Address": addresses
-    })
-
-    return pd.DataFrame({
-        "lat": [pt.y for pt in stops_latlon],
-        "lon": [pt.x for pt in stops_latlon],
-        "Stop Name": [f"Stop {i+1}" for i in range(len(stops_latlon))],
-        "Address": [sim["metadata"]["school_name"]]*len(stops_latlon)
+        "Address": addresses,
+        "Traffic Risk (T)": risks
     })
