@@ -65,7 +65,7 @@ def estimate_traffic_risk(lat, lon):
         buffer_dist = 75  # meters
 
         # Download nearby roads
-        roads = ox.geometries_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
+        roads = ox.features_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
         print(f"[DEBUG] Found {len(roads)} road segments")
 
         if roads.empty:
