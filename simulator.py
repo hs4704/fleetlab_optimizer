@@ -147,5 +147,5 @@ def generate_stops_for_school(school_name, n=50):
         "Stop Name": [f"Stop {i+1}" for i in range(len(lats))],
         "Address": addresses,
         "Traffic Risk (T)": risks,
-        "U-Turn Needed": uturns
+        "U-Turn Required (U)": [1 if u == "Yes" else 0 for u in uturns]
     })
