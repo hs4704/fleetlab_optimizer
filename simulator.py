@@ -38,12 +38,6 @@ def simulate_district(school_name, n_stops=50):
             "num_stops": len(stops_df)
         }
     }
-if __name__ == "__main__":
-    # Test a scenario with likely U-turn
-    print("Testing U-turn scenario:")
-    lat1, lon1 = 42.331, -83.045  # Near Detroit
-    lat2, lon2 = 42.331, -83.050  # Slightly west — may trigger U-turn
-    print("U-Turn needed?", detect_uturn_needed(lat1, lon1, lat2, lon2))
 
 
 # === STEP 2: Reverse geocoding helper ===
@@ -53,7 +47,7 @@ def reverse_geocode(lat, lon):
         if result and "formatted_address" in result[0]:
             return result[0]["formatted_address"]
     except Exception as e:
-        print(f"Reverse geocoding failed: {e}")
+        print(f"[Reverse Geocode ERROR] {e}")
     return "Unknown Address"
 
 
@@ -100,19 +94,23 @@ def estimate_traffic_risk(lat, lon):
 
 # === STEP 4: Detect if U-turn is needed ===
 def detect_uturn_needed(origin_lat, origin_lon, dest_lat, dest_lon):
-    try:
-        directions = gmaps.directions((origin_lat, origin_lon), (dest_lat, dest_lon), mode="driving")
-        if not directions:
-            return False
-        steps = directions[0]['legs'][0]['steps']
-        for step in steps:
-            instruction = step.get('html_instructions', '').lower()
-            if "u-turn" in instruction:
-                return True
+    print(f"[U-Turn DEBUG] Checking U-turn from stop ({origin_lat}, {origin_lon}) to school ({dest_lat}, {dest_lon})")
+    directions = gmaps.directions((origin_lat, origin_lon), (dest_lat, dest_lon), mode="driving")
+
+    if not directions:
+        print("[U-Turn DEBUG] No directions found")
         return False
-    except Exception as e:
-        print(f"[U-Turn ERROR] {e}")
-        return False
+
+    steps = directions[0]['legs'][0]['steps']
+    for step in steps:
+        instruction = step.get('html_instructions', '').lower()
+        print("[U-Turn DEBUG] Instruction:", instruction)
+        if "u-turn" in instruction:
+            print("[U-Turn DETECTED]")
+            return True
+
+    print("[U-Turn DEBUG] No U-turn detected")
+    return False
 
 
 # === STEP 5: Final generation wrapper ===
