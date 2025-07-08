@@ -60,16 +60,22 @@ def reverse_geocode(lat, lon):
 # === STEP 3: Score traffic risk based on road proximity ===
 def estimate_traffic_risk(lat, lon):
     try:
+        print(f"[DEBUG] Estimating traffic risk at ({lat}, {lon})")
         point = Point(lon, lat)
         buffer_dist = 75  # meters
+
+        # Download nearby roads
         roads = ox.geometries_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
+        print(f"[DEBUG] Found {len(roads)} road segments")
 
         if roads.empty:
-            return 0.3  # No roads = low risk
+            print("[DEBUG] No roads found — assigning low risk")
+            return 0.3
 
         road_types = roads["highway"].dropna().tolist()
-        all_types = []
+        print(f"[DEBUG] Raw road types: {road_types}")
 
+        all_types = []
         for r in road_types:
             if isinstance(r, list):
                 all_types.extend(r)
@@ -90,7 +96,9 @@ def estimate_traffic_risk(lat, lon):
             elif "residential" in rtype:
                 score = max(score, 0.3)
 
+        print(f"[DEBUG] Final traffic risk score: {score}")
         return score
+
     except Exception as e:
         print(f"[Traffic Risk ERROR] {e}")
         return 0.5
