@@ -107,19 +107,22 @@ def autofill_missing_fields(df):
         if 'U-Turn Required (U)' not in df.columns or pd.isna(row.get('U-Turn Required (U)')):
             df.at[idx, 'U-Turn Required (U)'] = 0
 
-        # === Construction Risk from OSM ===
-        try:
-            construction = ox.features_from_point(
-                (lat, lon),
-                tags={"highway": "construction"},
-                dist=100
-            )
-            df.at[idx, 'Construction Risk (C)'] = 0.9 if not construction.empty else 0.2
-        except Exception as e:
-            print(f"[Construction Risk ERROR] {e}")
-            df.at[idx, 'Construction Risk (C)'] = 0.2
+        # === Construction Risk using OSM 'highway=construction' ===
+        if 'Construction Risk (C)' not in df.columns or pd.isna(row.get('Construction Risk (C)')):
+            try:
+                construction = ox.features_from_point(
+                    (lat, lon),
+                    tags={"highway": "construction"},
+                    dist=100
+                )
+                df.at[idx, 'Construction Risk (C)'] = 0.9 if not construction.empty else 0.2
+            except Exception as e:
+                # Suppress spammy "No matching features" logs
+                if "No matching features" not in str(e):
+                    print(f"[Construction Risk ERROR] {e}")
+                df.at[idx, 'Construction Risk (C)'] = 0.2
 
-        # === Visibility, Lighting, Ped Safety, Sidewalk Quality (fallbacks only) ===
+        # === Visibility, Lighting, Pedestrian Safety, Sidewalk Quality fallbacks ===
         if 'Visibility (V)' not in df.columns or pd.isna(row.get('Visibility (V)')):
             df.at[idx, 'Visibility (V)'] = 0.6
         if 'Lighting (L)' not in df.columns or pd.isna(row.get('Lighting (L)')):
