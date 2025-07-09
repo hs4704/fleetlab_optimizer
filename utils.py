@@ -95,33 +95,39 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
 
 # === SAFETY FACTOR FILLER ===
 def autofill_missing_fields(df):
-    # Fill in only if columns are missing or null
-    if 'Traffic Risk (T)' not in df.columns:
-        df["Traffic Risk (T)"] = 0.5
-    else:
-        df["Traffic Risk (T)"] = df["Traffic Risk (T)"].fillna(0.5)
+    for idx, row in df.iterrows():
+        address = row.get("Address", "Unknown Address")
+        lat, lon = row.get("lat"), row.get("lon")
 
-    if 'U-Turn Required (U)' not in df.columns:
-        df["U-Turn Required (U)"] = 0
-    else:
-        df["U-Turn Required (U)"] = df["U-Turn Required (U)"].fillna(0)
+        # === Traffic Risk fallback ===
+        if 'Traffic Risk (T)' not in df.columns or pd.isna(row.get('Traffic Risk (T)')):
+            df.at[idx, 'Traffic Risk (T)'] = 0.5
 
-    if 'Construction Risk (C)' not in df.columns:
-        df["Construction Risk (C)"] = 0.2
-    else:
-        df["Construction Risk (C)"] = df["Construction Risk (C)"].fillna(0.2)
+        # === U-Turn fallback ===
+        if 'U-Turn Required (U)' not in df.columns or pd.isna(row.get('U-Turn Required (U)')):
+            df.at[idx, 'U-Turn Required (U)'] = 0
 
-    if 'Visibility (V)' not in df.columns:
-        df["Visibility (V)"] = 0.6
+        # === Construction Risk from OSM ===
+        try:
+            construction = ox.features_from_point(
+                (lat, lon),
+                tags={"highway": "construction"},
+                dist=100
+            )
+            df.at[idx, 'Construction Risk (C)'] = 0.9 if not construction.empty else 0.2
+        except Exception as e:
+            print(f"[Construction Risk ERROR] {e}")
+            df.at[idx, 'Construction Risk (C)'] = 0.2
 
-    if 'Lighting (L)' not in df.columns:
-        df["Lighting (L)"] = 0.5
-
-    if 'Pedestrian Safety (P)' not in df.columns:
-        df["Pedestrian Safety (P)"] = 0.5
-
-    if 'Sidewalk Quality (S)' not in df.columns:
-        df["Sidewalk Quality (S)"] = 0.5
+        # === Visibility, Lighting, Ped Safety, Sidewalk Quality (fallbacks only) ===
+        if 'Visibility (V)' not in df.columns or pd.isna(row.get('Visibility (V)')):
+            df.at[idx, 'Visibility (V)'] = 0.6
+        if 'Lighting (L)' not in df.columns or pd.isna(row.get('Lighting (L)')):
+            df.at[idx, 'Lighting (L)'] = 0.5
+        if 'Pedestrian Safety (P)' not in df.columns or pd.isna(row.get('Pedestrian Safety (P)')):
+            df.at[idx, 'Pedestrian Safety (P)'] = 0.5
+        if 'Sidewalk Quality (S)' not in df.columns or pd.isna(row.get('Sidewalk Quality (S)')):
+            df.at[idx, 'Sidewalk Quality (S)'] = 0.5
 
     return df
 
