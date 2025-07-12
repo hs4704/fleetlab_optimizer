@@ -55,7 +55,7 @@ if mode == "Upload CSV":
         if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
             from preprocess import preprocess_excel_style_sheet  # Make sure this is defined
             df_stops = preprocess_excel_style_sheet(df_uploaded)
-            df_stops.rename(columns={"address": "Address", "school": "School"}, inplace=True)
+            
 
             # Normalize 'school' column
             if "school" not in df_stops.columns:
