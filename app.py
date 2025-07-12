@@ -37,7 +37,6 @@ def geocode_addresses(addresses):
             longitudes.append(None)
         time.sleep(0.2)
     return latitudes, longitudes
-
 # === STEP 1: Load Stops ===
 st.sidebar.header("1. Load Stops")
 mode = st.sidebar.radio("Choose input mode:", ["Upload CSV", "Simulate from School Name"])
@@ -50,9 +49,19 @@ if mode == "Upload CSV":
 
         # Try converting Excel-style input to stop table
         if "Home Address" in df_uploaded.columns and "City" in df_uploaded.columns:
-            from preprocess import preprocess_excel_style_sheet  # make sure this is at the top if not already
             df_stops = preprocess_excel_style_sheet(df_uploaded)
-            st.success("✅ Uploaded Excel-style address sheet and extracted stop list.")
+
+            # Clean and extract schools
+            df_stops["School"] = df_stops["School"].astype(str).str.strip()
+            schools = sorted(df_stops["School"].dropna().unique())
+
+            if not schools:
+                st.error("❌ No schools found in uploaded sheet.")
+                st.stop()
+
+            selected_school = st.sidebar.selectbox("Select a school to process", schools)
+            df_stops = df_stops[df_stops["School"] == selected_school].copy()
+            st.success(f"✅ Now processing {len(df_stops)} stops for: {selected_school}")
         else:
             df_stops = df_uploaded
             st.success("✅ Uploaded preformatted stop CSV.")
