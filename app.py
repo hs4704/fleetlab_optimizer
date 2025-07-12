@@ -205,13 +205,22 @@ if st.button("Optimize Fleet Mix"):
                     best_mix = (buses, vans, drivers)
 
     if best_mix:
-        buses, vans, drivers = best_mix
-        st.success(f"✅ Optimal Fleet: {buses} Buses, {vans} Vans")
-        st.markdown(f"- **Drivers Needed:** {drivers}")
-        st.markdown(f"- **Estimated Daily Cost:** `${lowest_cost:,.2f}`")
-        st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
+        st.session_state["fleet_mix"]={
+            "buses": best_mix[0],
+            "vans": best_mix[1],
+            "drivers": best_mix[2],
+            "cost": lowest_cost,
+            "capacity": best_mix[0] * bus_capacity + best_mix[1] * van_capacity
+        }
     else:
-        st.error("❌ No valid fleet mix found.")
+        st.error("No valid fleet mix found.")
+        
+if "fleet_mix" in st.session_state:
+    mix= st.session_state["fleet_mix"]
+    st.success(f"✅ Optimal Fleet: {buses} Buses, {vans} Vans")
+    st.markdown(f"- **Drivers Needed:** {drivers}")
+    st.markdown(f"- **Estimated Daily Cost:** `${lowest_cost:,.2f}`")
+    st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 
