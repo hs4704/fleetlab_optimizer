@@ -66,5 +66,11 @@ def preprocess_excel_style_sheet(df):
 
     # Rename school column
     df["School"] = df[matched["school"]].astype(str).str.strip()
-
+# Ensure standardized casing across app
+    df = df.rename(columns={
+        matched["address"]: "Address",
+        matched["city"]: "City",
+        matched["zip"]: "Zip",
+        matched["school"]: "School"
+    })
     return df
