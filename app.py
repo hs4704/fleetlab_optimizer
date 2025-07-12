@@ -131,11 +131,11 @@ except Exception as e:
 
 # === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
-bus_capacity = 20
-van_capacity = 7
-bus_cost = 200
-van_cost = 120
-driver_cost = 150
+bus_capacity = 55
+van_capacity = 9
+bus_cost = 483  
+van_cost = 95 + 8.33 + 16.31 #Total 199.64
+driver_cost = 80
 
 if st.button("Optimize Fleet Mix"):
     total_stops = len(df_stops)
@@ -160,7 +160,11 @@ if st.button("Optimize Fleet Mix"):
         st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
     else:
         st.error("❌ No valid fleet mix found.")
-
+# === ROUTE GENERATION PLACEHOLDER ===
+st.subheader("🗺️ Route Planner")
+if st.button("Generate Routes"):
+    st.info("🚧 Routing in progress... (feature not yet implemented)")
+    # TODO: Call OR-Tools and draw routes here
 # === SUMMARY ===
 st.subheader("🧭 Route Coverage Summary")
 st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
