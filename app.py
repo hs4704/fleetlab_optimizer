@@ -52,6 +52,10 @@ if mode == "Upload CSV":
             df_stops = preprocess_excel_style_sheet(df_uploaded)
 
             # Clean and extract schools
+            if "School" not in df_stops.columns:
+                st.error("❌ 'School' column not found in uploaded sheet. Please check the format.")
+                st.stop()
+
             df_stops["School"] = df_stops["School"].astype(str).str.strip()
             schools = sorted(df_stops["School"].dropna().unique())
 
