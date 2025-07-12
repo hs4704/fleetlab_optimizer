@@ -212,7 +212,7 @@ if st.button("Optimize Fleet Mix"):
         st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
     else:
         st.error("❌ No valid fleet mix found.")
-# === ROUTE GENERATION  ===
+# === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 
 if st.button("Generate Routes"):
@@ -225,32 +225,43 @@ if st.button("Generate Routes"):
                 stop_coords = [(row["lat"], row["lon"]) for _, row in df_stops.iterrows()]
                 all_locations = [depot] + stop_coords
 
+                from router import solve_routes  # safe to import here
                 routes = solve_routes(all_locations, num_vehicles=4, depot_index=0)
 
                 if not routes:
                     st.error("❌ Route optimization failed. Try fewer stops or vehicles.")
                 else:
-                    m = folium.Map(location=depot, zoom_start=12)
-
-                    colors = ["red", "blue", "green", "purple", "orange", "darkred", "lightblue", "gray"]
-                    for i, route in enumerate(routes):
-                        color = colors[i % len(colors)]
-                        points = [all_locations[idx] for idx in route]
-                        folium.PolyLine(points, color=color, weight=4, opacity=0.8).add_to(m)
-                        for j, pt in enumerate(points):
-                            folium.CircleMarker(
-                                location=pt,
-                                radius=4,
-                                color=color,
-                                fill=True,
-                                fill_opacity=0.8,
-                                popup=f"Route {i+1} Stop {j}" if j > 0 else f"Depot"
-                            ).add_to(m)
-
-                    st_folium(m, width=900)
+                    st.session_state["routes"] = routes
+                    st.session_state["all_locations"] = all_locations
                     st.success(f"✅ Generated {len(routes)} routes from school!")
+
         except Exception as e:
             st.error(f"❌ Route generation failed: {e}")
+
+# === DISPLAY ROUTES IF PRESENT ===
+if "routes" in st.session_state and "all_locations" in st.session_state:
+    st.subheader("📍 Optimized Route Map")
+    depot = st.session_state["school_coords"]
+    all_locations = st.session_state["all_locations"]
+    routes = st.session_state["routes"]
+
+    m = folium.Map(location=depot, zoom_start=12)
+    colors = ["red", "blue", "green", "purple", "orange", "darkred", "lightblue", "gray"]
+    for i, route in enumerate(routes):
+        color = colors[i % len(colors)]
+        points = [all_locations[idx] for idx in route]
+        folium.PolyLine(points, color=color, weight=4, opacity=0.8).add_to(m)
+        for j, pt in enumerate(points):
+            folium.CircleMarker(
+                location=pt,
+                radius=4,
+                color=color,
+                fill=True,
+                fill_opacity=0.8,
+                popup=f"Route {i+1} Stop {j}" if j > 0 else f"Depot"
+            ).add_to(m)
+
+    st_folium(m, width=900)
 # === SUMMARY ===
 st.subheader("🧭 Route Coverage Summary")
 st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
