@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import time
 from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
+from preprocess import preprocess_excel_style_sheet
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
@@ -45,8 +46,16 @@ df_stops = None
 if mode == "Upload CSV":
     uploaded = st.sidebar.file_uploader("Upload stop CSV", type="csv")
     if uploaded:
-        df_stops = pd.read_csv(uploaded)
-        st.success("✅ File uploaded!")
+        df_uploaded = pd.read_csv(uploaded)
+
+        # Try converting Excel-style input to stop table
+        if "Home Address" in df_uploaded.columns and "City" in df_uploaded.columns:
+            from preprocess import preprocess_excel_style_sheet  # make sure this is at the top if not already
+            df_stops = preprocess_excel_style_sheet(df_uploaded)
+            st.success("✅ Uploaded Excel-style address sheet and extracted stop list.")
+        else:
+            df_stops = df_uploaded
+            st.success("✅ Uploaded preformatted stop CSV.")
     else:
         try:
             df_stops = pd.read_csv("sample_stops.csv")
