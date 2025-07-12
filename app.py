@@ -245,23 +245,33 @@ if "routes" in st.session_state and "all_locations" in st.session_state:
     all_locations = st.session_state["all_locations"]
     routes = st.session_state["routes"]
 
+    # More visible and diverse color palette
+    color_palette = [
+        "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
+        "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
+    ]
+
     m = folium.Map(location=depot, zoom_start=12)
-    colors = ["red", "blue", "green", "purple", "orange", "darkred", "lightblue", "gray"]
     for i, route in enumerate(routes):
-        color = colors[i % len(colors)]
+        color = color_palette[i % len(color_palette)]
         points = [all_locations[idx] for idx in route]
-        folium.PolyLine(points, color=color, weight=4, opacity=0.8).add_to(m)
+        
+        # Draw thick route line
+        folium.PolyLine(points, color=color, weight=6, opacity=0.85, tooltip=f"Route {i+1}").add_to(m)
+
+        # Draw markers for each stop
         for j, pt in enumerate(points):
+            popup = f"Route {i+1} - Stop {j}" if j > 0 else "Depot"
             folium.CircleMarker(
                 location=pt,
-                radius=4,
+                radius=5,
                 color=color,
                 fill=True,
-                fill_opacity=0.8,
-                popup=f"Route {i+1} Stop {j}" if j > 0 else f"Depot"
+                fill_opacity=0.9,
+                popup=popup
             ).add_to(m)
 
-    st_folium(m, width=900)
+    st_folium(m, width=950)
 # === SUMMARY ===
 st.subheader("🧭 Route Coverage Summary")
 st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
