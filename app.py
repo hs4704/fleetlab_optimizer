@@ -46,6 +46,7 @@ if mode == "Upload CSV":
     uploaded = st.sidebar.file_uploader("Upload stop CSV", type="csv")
     if uploaded:
         df_uploaded = pd.read_csv(uploaded)
+        df_uploaded.columns = df_uploaded.columns.str.strip() #clean headers
 
         # Try converting Excel-style input to stop table
         if "Home Address" in df_uploaded.columns and "City" in df_uploaded.columns:
