@@ -53,7 +53,7 @@ if mode == "Upload CSV":
 
         # Try converting Excel-style address sheet
         if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
-            from preprocess import preprocess_excel_style_sheet  # Make sure this is defined
+            
             df_stops = preprocess_excel_style_sheet(df_uploaded)
             
 
@@ -71,6 +71,18 @@ if mode == "Upload CSV":
 
             selected_school = st.sidebar.selectbox("Select a school to process", schools)
             df_stops = df_stops[df_stops["school"] == selected_school].copy()
+
+            # Try to geocode school for routing reference
+            try:
+                school_geocode = gmaps.geocode(selected_school)
+                if school_geocode:
+                    loc = school_geocode[0]["geometry"]["location"]
+                    st.session_state["school_coords"] = (loc["lat"], loc["lng"])
+                else:
+                    st.warning("⚠️ Could not geocode selected school. Routes may not generate correctly.")
+            except Exception as e:
+                st.warning(f"⚠️ Geocoding error for school: {e}")
+
             st.success(f"✅ Now processing {len(df_stops)} stops for: {selected_school}")
 
         else:
@@ -101,10 +113,19 @@ elif mode == "Simulate from School Name":
                 st.stop()
             st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
             st.dataframe(df_stops.head())
+
+            # Save simulated stops
             st.session_state["df_stops"] = df_stops
+
+            # Store school coordinates for routing
+            school_lat = df_stops["lat"].mean()
+            school_lon = df_stops["lon"].mean()
+            st.session_state["school_coords"] = (school_lat, school_lon)
+
         except Exception as e:
             st.error(f"❌ Simulation failed: {e}")
             st.stop()
+
     elif "df_stops" in st.session_state:
         df_stops = st.session_state["df_stops"]
     else:
