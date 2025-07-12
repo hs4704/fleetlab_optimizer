@@ -16,17 +16,15 @@ def load_input_data(csv_file):
         raise ValueError("CSV must contain either 'Home Address' or 'lat'/'lon' columns.")
     return df
 
-def preprocess_excel_style_sheet(df):
-    
 
-    # Normalize column names
+def preprocess_excel_style_sheet(df):
+    # Normalize column names for matching
     original_cols = df.columns.tolist()
     df.columns = df.columns.str.strip().str.lower()
 
-    # DEBUG: Show columns after normalization
     st.info(f"📋 Normalized columns: {df.columns.tolist()}")
 
-    # Aliases for matching expected fields
+    # Common aliases for each field
     column_aliases = {
         "address": ["home address", "address", "street", "addr"],
         "city": ["city", "town"],
@@ -36,7 +34,7 @@ def preprocess_excel_style_sheet(df):
 
     matched = {}
 
-    # Try to match each expected field
+    # Match normalized column names to expected fields
     for key, aliases in column_aliases.items():
         for alias in aliases:
             for col in df.columns:
@@ -46,16 +44,16 @@ def preprocess_excel_style_sheet(df):
             if key in matched:
                 break
 
-    # DEBUG: Show mapping
     st.info(f"🔍 Matched columns: {matched}")
 
     # Check required fields
     required = ["address", "city", "zip", "school"]
     missing = [r for r in required if r not in matched]
     if missing:
-        raise ValueError(f"❌ Required column(s) missing: {', '.join(missing)}")
+        st.error(f"❌ Required column(s) missing: {', '.join(missing)}")
+        raise ValueError(f"Missing column(s): {', '.join(missing)}")
 
-    # Build standard Address column
+    # Create combined Address field
     df["Address"] = (
         df[matched["address"]].fillna("").astype(str)
         + ", "
@@ -64,13 +62,13 @@ def preprocess_excel_style_sheet(df):
         + df[matched["zip"]].fillna("").astype(str)
     )
 
-    # Rename school column
+    # Create final School column
     df["School"] = df[matched["school"]].astype(str).str.strip()
-# Ensure standardized casing across app
-    df = df.rename(columns={
-        matched["address"]: "Address",
-        matched["city"]: "City",
-        matched["zip"]: "Zip",
-        matched["school"]: "School"
-    })
+
+    # Optionally clean extra whitespace from Address
+    df["Address"] = df["Address"].str.replace(r"\s+", " ", regex=True).str.strip()
+    st.write("✅ Columns after processing:", df.columns.tolist())
+    st.write("🧪 Sample 'School' values:", df['School'].dropna().unique().tolist())
+
     return df
+
