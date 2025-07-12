@@ -1,6 +1,7 @@
 # preprocess.py
 
 import pandas as pd
+import difflib
 
 def load_input_data(csv_file):
     df = pd.read_csv(csv_file)
@@ -15,28 +16,44 @@ def load_input_data(csv_file):
     return df
 
 def preprocess_excel_style_sheet(df):
-    """
-    Converts a parent-style Excel sheet with home address info into a clean stop list.
-    Expects: home address, city, zip code, school
-    Returns: DataFrame with columns ['Address', 'School', 'Student ID' (optional)]
-    """
-    # Normalize column names
     df.columns = df.columns.str.strip().str.lower()
+    original_cols = df.columns.tolist()
 
-    required = ["home address", "city", "school"]
-    for col in required:
-        if col not in df.columns:
-            raise ValueError(f"❌ Required column '{col}' not found in uploaded sheet.")
+    # Define expected field aliases
+    column_aliases = {
+        "address": ["home address", "street address", "addr", "address"],
+        "city": ["city", "town"],
+        "zip": ["zip", "zipcode", "zip code", "postal code"],
+        "school": ["school", "school name", "campus"],
+        "grade": ["grade", "class"],
+        "transport_option": ["transportation option", "transport", "transport option", "ride option"],
+        "group_pref": ["group stop", "preferred group stop", "preferred location"]
+    }
 
-    # Optional zip
-    zip_part = df["zip code"].astype(str).str.strip() if "zip code" in df.columns else ""
+    # Match columns to internal names
+    mapped_cols = {}
+    for canonical, aliases in column_aliases.items():
+        match = next(
+            (col for alias in aliases for col in original_cols if alias in col), None
+        )
+        if not match:
+            closest = difflib.get_close_matches(canonical, original_cols, n=1)
+            match = closest[0] if closest else None
+        if match:
+            mapped_cols[match] = canonical
 
-    # Combine into full geocodable address
-    df["address"] = df["home address"].astype(str).str.strip() + ", " + df["city"].astype(str).str.strip()
-    if "zip code" in df.columns:
-        df["address"] += ", " + zip_part
+    df = df.rename(columns=mapped_cols)
 
-    # Standardize school column
-    df["school"] = df["school"].astype(str).str.strip()
+    # Check for required fields
+    required = ["address", "city", "zip", "school"]
+    missing = [r for r in required if r not in df.columns]
+    if missing:
+        raise ValueError(f"❌ Required column(s) missing: {', '.join(missing)}")
 
-    return df[["address", "school"]].dropna()
+    # Construct full address string
+    df["Address"] = df["address"].fillna("") + ", " + df["city"].fillna("") + ", " + df["zip"].fillna("")
+
+    # Normalize school column
+    df["School"] = df["school"].astype(str).str.strip()
+
+    return df
