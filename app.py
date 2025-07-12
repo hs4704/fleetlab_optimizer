@@ -44,30 +44,36 @@ df_stops = None
 
 if mode == "Upload CSV":
     uploaded = st.sidebar.file_uploader("Upload stop CSV", type="csv")
+    
     if uploaded:
         df_uploaded = pd.read_csv(uploaded)
-        df_uploaded.columns = df_uploaded.columns.str.strip() #clean headers
+        df_uploaded.columns = df_uploaded.columns.str.strip().str.lower()  # Normalize
 
-        # Try converting Excel-style input to stop table
-        if "Home Address" in df_uploaded.columns and "City" in df_uploaded.columns:
+        st.warning(f"📋 Columns in uploaded file: {list(df_uploaded.columns)}")
+
+        # Try converting Excel-style address sheet
+        if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
+            from preprocess import preprocess_excel_style_sheet  # Make sure this is defined
             df_stops = preprocess_excel_style_sheet(df_uploaded)
 
-            # Clean and extract schools
-            if "School" not in df_stops.columns:
-                st.error("❌ 'School' column not found in uploaded sheet. Please check the format.")
+            # Normalize 'school' column
+            if "school" not in df_stops.columns:
+                st.error("❌ 'School' column not found after processing. Please check the format.")
                 st.stop()
 
-            df_stops["School"] = df_stops["School"].astype(str).str.strip()
-            schools = sorted(df_stops["School"].dropna().unique())
+            df_stops["school"] = df_stops["school"].astype(str).str.strip()
+            schools = sorted(df_stops["school"].dropna().unique())
 
             if not schools:
                 st.error("❌ No schools found in uploaded sheet.")
                 st.stop()
 
             selected_school = st.sidebar.selectbox("Select a school to process", schools)
-            df_stops = df_stops[df_stops["School"] == selected_school].copy()
+            df_stops = df_stops[df_stops["school"] == selected_school].copy()
             st.success(f"✅ Now processing {len(df_stops)} stops for: {selected_school}")
+
         else:
+            # Handle already formatted stop data
             df_stops = df_uploaded
             st.success("✅ Uploaded preformatted stop CSV.")
     else:
