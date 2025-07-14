@@ -11,6 +11,7 @@ from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
 from preprocess import preprocess_excel_style_sheet
 from router import solve_routes
+import numpy as np
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
