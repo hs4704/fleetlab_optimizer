@@ -68,12 +68,14 @@ if "route_map" in st.session_state:
 
     st.download_button("📥 Download Routes (GeoJSON)", data=st.session_state["route_geojson"], file_name="fleetlab_routes.geojson", mime="application/geo+json")
 
-# === SUMMARY ===
-st.subheader("🧭 Route Coverage Summary")
-st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
-st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
-st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
+# ==Summary==
+if "df_stops" in locals() or "df_stops" in globals():
+    st.subheader("🧭 Route Coverage Summary")
+    st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
+    st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
+    st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
 
-# === DATA TABLE ===
-st.subheader("📋 Stop Table")
-st.dataframe(df_stops, use_container_width=True)
+    st.subheader("📋 Stop Table")
+    st.dataframe(df_stops, use_container_width=True)
+else:
+    st.info("ℹ️ No stop data loaded. Please upload or simulate stops first.")
