@@ -221,6 +221,41 @@ if "fleet_mix" in st.session_state:
     st.markdown(f"- **Drivers Needed:** {drivers}")
     st.markdown(f"- **Estimated Daily Cost:** `${lowest_cost:,.2f}`")
     st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
+# === EXECUTIVE SUMMARY ===
+st.subheader("📊 Executive Summary")
+
+# Compute baseline (all buses) vs optimized fleet
+total_stops = len(df_stops)
+
+# Baseline: all buses
+buses_needed_baseline = int(np.ceil(total_stops / bus_capacity))
+baseline_cost = (buses_needed_baseline * bus_cost) + (buses_needed_baseline * driver_cost)
+
+# Optimized mix (reusing variables if optimization ran)
+if "best_mix" in locals() and best_mix:
+    buses_opt, vans_opt, drivers_opt = best_mix
+    optimized_cost = (buses_opt * bus_cost) + (vans_opt * van_cost) + (drivers_opt * driver_cost)
+
+    # Safety summary
+    total_safe = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
+    safe_pct = round(100 * total_safe / total_stops, 1)
+
+    # Cost savings
+    savings = baseline_cost - optimized_cost
+    savings_pct = round(100 * (savings / baseline_cost), 1)
+
+    st.markdown(f"""
+    ### ✅ FleetLab Optimization Results:
+    - **Recommended Fleet**: {buses_opt} Buses, {vans_opt} Vans  
+    - **Drivers Needed**: {drivers_opt}  
+    - **Daily Cost with FleetLab**: `${optimized_cost:,.2f}`  
+    - **Baseline (All Buses) Cost**: `${baseline_cost:,.2f}`  
+    - **Daily Savings**: `${savings:,.2f}` ({savings_pct}% lower)  
+    - **% of Safe Stops**: {safe_pct}%  
+    """)
+
+else:
+    st.info("ℹ️ Run the Fleet Mix Optimizer to see the full Executive Summary.")
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 
