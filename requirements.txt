@@ -10,3 +10,4 @@ pyproj
 osmnx
 ortools 
 geopy 
+scikit-learn
