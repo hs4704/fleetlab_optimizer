@@ -14,6 +14,34 @@ from router import cluster_and_route_stops, export_routes_geojson
 import numpy as np
 import base64
 
+
+# === CONFIG ===
+st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
+st.title("🚌 FleetLab Routing & Cost Optimizer")
+
+# === GOOGLE MAPS CLIENT ===
+gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
+
+# === GEOCODER FUNCTION (cached) ===
+@st.cache_data(show_spinner="📍 Geocoding addresses...")
+def geocode_addresses(addresses):
+    latitudes, longitudes = [], []
+    for address in addresses:
+        try:
+            geocode = gmaps.geocode(address)
+            if geocode:
+                loc = geocode[0]["geometry"]["location"]
+                latitudes.append(loc["lat"])
+                longitudes.append(loc["lng"])
+            else:
+                latitudes.append(None)
+                longitudes.append(None)
+        except:
+            latitudes.append(None)
+            longitudes.append(None)
+        time.sleep(0.2)
+    return latitudes, longitudes
+
 # === STEP 1: Load Stops ===
 st.sidebar.header("1. Load Stops")
 mode = st.sidebar.radio("Choose input mode:", ["Upload CSV", "Simulate from School Name"])
@@ -85,35 +113,6 @@ elif mode == "Simulate from School Name":
     else:
         st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
-# === CONFIG ===
-st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
-st.title("🚌 FleetLab Routing & Cost Optimizer")
-
-# === GOOGLE MAPS CLIENT ===
-gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
-
-# === GEOCODER FUNCTION (cached) ===
-@st.cache_data(show_spinner="📍 Geocoding addresses...")
-def geocode_addresses(addresses):
-    latitudes, longitudes = [], []
-    for address in addresses:
-        try:
-            geocode = gmaps.geocode(address)
-            if geocode:
-                loc = geocode[0]["geometry"]["location"]
-                latitudes.append(loc["lat"])
-                longitudes.append(loc["lng"])
-            else:
-                latitudes.append(None)
-                longitudes.append(None)
-        except:
-            latitudes.append(None)
-            longitudes.append(None)
-        time.sleep(0.2)
-    return latitudes, longitudes
-
-# [unchanged: Load Stops, Geocode, Safety scoring, Fleet optimizer, Executive summary]
-# Skip to updated routing
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
