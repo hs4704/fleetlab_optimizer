@@ -14,7 +14,6 @@ from router import cluster_and_route_stops, export_routes_geojson
 import numpy as np
 import base64
 
-
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
 st.title("🚌 FleetLab Routing & Cost Optimizer")
@@ -22,7 +21,7 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === GEOCODER FUNCTION (cached) ===
+# === GEOCODER FUNCTION ===
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -65,6 +64,10 @@ if mode == "Upload CSV":
             df_stops["school"] = df_stops["school"].astype(str).str.strip()
             schools = sorted(df_stops["school"].dropna().unique())
 
+            if not schools:
+                st.error("❌ No schools found in uploaded sheet.")
+                st.stop()
+
             selected_school = st.sidebar.selectbox("Select a school to process", schools)
             df_stops = df_stops[df_stops["school"] == selected_school].copy()
 
@@ -74,7 +77,7 @@ if mode == "Upload CSV":
                     loc = school_geocode[0]["geometry"]["location"]
                     st.session_state["school_coords"] = (loc["lat"], loc["lng"])
                 else:
-                    st.warning("⚠️ Could not geocode selected school.")
+                    st.warning("⚠️ Could not geocode selected school. Routes may not generate correctly.")
             except Exception as e:
                 st.warning(f"⚠️ Geocoding error for school: {e}")
 
@@ -98,13 +101,19 @@ elif mode == "Simulate from School Name":
 
     if simulate_clicked:
         if not school.strip():
-            st.error("❌ Please enter a school name.")
+            st.error("❌Please enter a school name before simulating.")
             st.stop()
         try:
             df_stops = generate_stops_for_school(school, n=n_stops)
-            st.session_state["df_stops"] = df_stops
-            st.session_state["school_coords"] = (df_stops["lat"].mean(), df_stops["lon"].mean())
+            if df_stops.empty:
+                st.error("❌ Simulation returned no stops.")
+                st.stop()
             st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
+            st.dataframe(df_stops.head())
+            st.session_state["df_stops"] = df_stops
+            school_lat = df_stops["lat"].mean()
+            school_lon = df_stops["lon"].mean()
+            st.session_state["school_coords"] = (school_lat, school_lon)
         except Exception as e:
             st.error(f"❌ Simulation failed: {e}")
             st.stop()
@@ -113,6 +122,35 @@ elif mode == "Simulate from School Name":
     else:
         st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
+
+# === STEP 2: Geocode if missing lat/lon ===
+if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
+    if "Address" in df_stops.columns:
+        addresses = df_stops["Address"].fillna("").astype(str).tolist()
+        lats, lons = geocode_addresses(addresses)
+
+        if len(lats) != len(df_stops):
+            st.error(f"❌ Geocoding failed: expected {len(df_stops)} coords but got {len(lats)}.")
+            st.stop()
+
+        df_stops = df_stops.copy()
+        df_stops["lat"] = pd.Series(lats, index=df_stops.index)
+        df_stops["lon"] = pd.Series(lons, index=df_stops.index)
+    else:
+        st.error("❌ No lat/lon or Address available for geocoding.")
+        st.stop()
+
+# === STEP 3: Drop invalid coords ===
+df_stops = df_stops.dropna(subset=["lat", "lon"])
+df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
+
+# === STEP 4: Safety Scoring ===
+with st.spinner("🔍 Estimating safety scores..."):
+    df_stops = autofill_missing_fields(df_stops)
+    df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
+    df_stops["Safety Rating"] = df_stops["SES Score"].apply(
+        lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
+    )
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
@@ -131,21 +169,18 @@ if st.button("Generate Routes"):
         except Exception as e:
             st.error(f"❌ Routing failed: {e}")
 
-# === DISPLAY ROUTES IF PRESENT ===
+# === DISPLAY ROUTES ===
 if "route_map" in st.session_state:
     st.subheader("📍 Optimized Route Map")
     st_folium(st.session_state["route_map"], width=950)
-
     st.download_button("📥 Download Routes (GeoJSON)", data=st.session_state["route_geojson"], file_name="fleetlab_routes.geojson", mime="application/geo+json")
 
-# ==Summary==
-if "df_stops" in locals() or "df_stops" in globals():
-    st.subheader("🧭 Route Coverage Summary")
-    st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
-    st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
-    st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
+# === ROUTE COVERAGE ===
+st.subheader("🧭 Route Coverage Summary")
+st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
+st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
+st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
 
-    st.subheader("📋 Stop Table")
-    st.dataframe(df_stops, use_container_width=True)
-else:
-    st.info("ℹ️ No stop data loaded. Please upload or simulate stops first.")
+# === STOP TABLE ===
+st.subheader("📋 Stop Table")
+st.dataframe(df_stops, use_container_width=True)
