@@ -13,6 +13,9 @@ from sklearn.cluster import KMeans
 import osmnx as ox
 import networkx as nx
 from shapely.geometry import LineString, MultiLineString
+import matplotlib.pyplot as plt
+from osmnx import graph_to_gdfs
+
 # Ensure session keys exist
 if "routes" not in st.session_state:
     st.session_state["routes"] = None
@@ -147,49 +150,77 @@ if st.button("Generate Routes"):
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
-# === DISPLAY ROUTES ===
-if st.session_state.get("routes") and st.session_state.get("G"):
-    st.subheader("📍 Optimized OSM-Based Route Map")
+# === DISPLAY ROUTES (Static Road Map with Arrows) ==
+
+if "routes" in st.session_state and "G" in st.session_state:
+    st.subheader("🗺️ Optimized Route Visualization (Static)")
 
     routes = st.session_state["routes"]
     G = st.session_state["G"]
     clustered_df = st.session_state.get("clustered_df")
     depot = st.session_state.get("school_coords")
 
-    try:
-        m = folium.Map(location=depot, zoom_start=13)
-        colors = ["red", "blue", "green", "purple", "orange", "darkred"]
+    cmap = plt.colormaps.get_cmap("tab10")
+    colors = [cmap(i) for i in range(len(routes))]
 
-        for cid, route_nodes in routes.items():
-            full_path = []
-            for u, v in zip(route_nodes[:-1], route_nodes[1:]):
-                try:
-                    segment = nx.shortest_path(G, u, v, weight='length')
-                    full_path += segment[:-1]
-                except Exception as e:
-                    st.warning(f"Route {cid} segment {u} → {v} failed: {e}")
-                    continue
-            full_path.append(route_nodes[-1])
+    fig, ax = ox.plot_graph(G, show=False, close=False, bgcolor="white", node_size=0)
 
+    for i, (cluster_id, route_nodes) in enumerate(routes.items()):
+        color = colors[i]
+        full_path = []
+
+        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
             try:
-                edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
-                line = edge_gdf.geometry.union_all()
+                segment = nx.shortest_path(G, u, v, weight='length')
+                full_path += segment[:-1]
+            except:
+                continue
+        full_path.append(route_nodes[-1])
 
-                if isinstance(line, LineString):
-                    folium.PolyLine(list(line.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
-                elif isinstance(line, MultiLineString):
-                    for segment in line.geoms:
-                        folium.PolyLine(list(segment.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
-            except Exception as e:
-                st.warning(f"Route {cid} plotting failed: {e}")
+        ox.plot_graph_route(
+            G, full_path,
+            route_linewidth=2,
+            route_color=color,
+            node_size=0,
+            ax=ax,
+            show=False,
+            close=False
+        )
 
-        # Optionally mark school
-        folium.Marker(location=depot, icon=folium.Icon(color="red", icon="star"), tooltip="School Depot").add_to(m)
+        # Plot arrows every 10 nodes
+        for idx in range(0, len(full_path) - 1, 10):
+            u = full_path[idx]
+            v = full_path[idx + 1]
+            try:
+                x1, y1 = G.nodes[u]["x"], G.nodes[u]["y"]
+                x2, y2 = G.nodes[v]["x"], G.nodes[v]["y"]
+                ax.annotate("",
+                            xy=(x2, y2),
+                            xytext=(x1, y1),
+                            arrowprops=dict(arrowstyle="->", color=color, lw=1),
+                            annotation_clip=False)
+            except:
+                continue
 
-        st_folium(m, width=950, height=600)
+    # Plot stops (if available)
+    if clustered_df is not None and "cluster" in clustered_df.columns:
+        gdf_stops = gpd.GeoDataFrame(
+            clustered_df, geometry=gpd.points_from_xy(clustered_df["lon"], clustered_df["lat"]), crs="EPSG:4326"
+        )
+        for _, row in gdf_stops.iterrows():
+            x, y = row.geometry.x, row.geometry.y
+            color = colors[row["cluster"] % len(colors)]
+            ax.plot(x, y, marker='o', color=color, markersize=4)
 
-    except Exception as e:
-        st.error(f"❌ Failed to render route map: {e}")
+    # Plot school location
+    gdf_nodes = graph_to_gdfs(G, nodes=True, edges=False)
+    school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
+    school_geom = gdf_nodes.loc[school_node].geometry
+    x, y = school_geom.xy
+    ax.plot(x[0], y[0], marker='*', color='red', markersize=20, label='School')
+
+    ax.legend(loc='lower right')
+    st.pyplot(fig)
 # === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
