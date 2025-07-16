@@ -228,7 +228,16 @@ if st.button("Generate Routes"):
         else:
             with st.spinner("🚐 Routing on real roads..."):
                 from router import cluster_and_route_stops
-                routes, G, clustered_df = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=3)
+
+                # 👇 Get number of clusters from fleet mix if available
+                if "fleet_mix" in st.session_state:
+                    fleet_mix = st.session_state["fleet_mix"]
+                    n_clusters = fleet_mix["buses"] + fleet_mix["vans"]
+                    n_clusters = max(n_clusters, 1)  # ensure at least 1
+                else:
+                    n_clusters = 3  # fallback default
+
+                routes, G, clustered_df = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=n_clusters)
                 st.session_state["routes"] = routes
                 st.session_state["G"] = G
                 st.session_state["clustered_df"] = clustered_df
