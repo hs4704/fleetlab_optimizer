@@ -104,7 +104,17 @@ df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))
 with st.spinner("🔍 Calculating SES and safety..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
-    st.write("🔎 Sample SES values:", df_stops[["Stop Name", "SES Score", "Visibility (V)", "Lighting (L)", "Traffic Risk (T)", "Construction Risk (C)"]])
+    # Standardize columns
+df_stops.columns = df_stops.columns.str.strip()
+
+# Check columns before displaying SES preview
+required_cols = ["Stop Name", "SES Score", "Visibility (V)", "Lighting (L)", "Traffic Risk (T)", "Construction Risk (C)"]
+missing_cols = [col for col in required_cols if col not in df_stops.columns]
+
+if not missing_cols:
+    st.write("🔎 Sample SES values:", df_stops[required_cols])
+else:
+    st.warning(f"⚠️ Missing columns in SES preview: {missing_cols}")
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
