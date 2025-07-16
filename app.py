@@ -132,7 +132,71 @@ try:
     st_folium(m, width=900)
 except Exception as e:
     st.error(f"❌ Map rendering error: {e}")
+# === OPTIMIZE FLEET MIX ===
+st.subheader("🚐 Fleet Mix Optimizer")
+bus_capacity = 55
+van_capacity = 9
+bus_cost = 483  
+van_cost = 95 + 8.33 + 16.31  # Total: 199.64
+driver_cost = 80
 
+if st.button("Optimize Fleet Mix"):
+    total_stops = len(df_stops)
+    best_mix = None
+    lowest_cost = float("inf")
+
+    for buses in range(0, 7):  # includes 0 buses
+        for vans in range(0, 11):  # includes 0 vans
+            capacity = buses * bus_capacity + vans * van_capacity
+            if capacity >= total_stops:
+                drivers = buses + vans
+                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+                if cost < lowest_cost:
+                    lowest_cost = cost
+                    best_mix = {
+                        "buses": buses,
+                        "vans": vans,
+                        "drivers": drivers,
+                        "cost": cost,
+                        "capacity": capacity
+                    }
+
+    if best_mix:
+        st.session_state["fleet_mix"] = best_mix
+    else:
+        st.error("No valid fleet mix found.")
+
+# === DISPLAY FLEET MIX RESULTS ===
+if "fleet_mix" in st.session_state:
+    mix = st.session_state["fleet_mix"]
+    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
+    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
+    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
+    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
+
+# === EXECUTIVE SUMMARY ===
+st.subheader("📊 Executive Summary")
+total_stops = len(df_stops)
+buses_needed = int(np.ceil(total_stops / bus_capacity))
+baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
+
+if "fleet_mix" in st.session_state:
+    optimized = st.session_state["fleet_mix"]
+    savings = baseline_cost - optimized["cost"]
+    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
+    safe_pct = round(100 * safe_count / total_stops, 1)
+    
+    st.markdown(f"""
+    ### ✅ FleetLab Optimization:
+    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
+    - **Drivers Needed**: {optimized['drivers']}  
+    - **Optimized Cost**: ${optimized['cost']:,.2f}  
+    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
+    - **Daily Savings**: ${savings:,.2f}  
+    - **% of Safe Stops**: {safe_pct}%  
+    """)
+else:
+    st.info("ℹ️ Run the optimizer to compare cost and safety improvements.")
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 if st.button("Generate Routes"):
@@ -222,72 +286,31 @@ if "routes" in st.session_state and "G" in st.session_state:
 
     ax.legend(loc='lower right')
     st.pyplot(fig)
-# === OPTIMIZE FLEET MIX ===
-st.subheader("🚐 Fleet Mix Optimizer")
-bus_capacity = 55
-van_capacity = 9
-bus_cost = 483  
-van_cost = 95 + 8.33 + 16.31  # Total: 199.64
-driver_cost = 80
+# === DOWNLOAD ROUTES ===
+from router import export_routes_geojson
+import json
 
-if st.button("Optimize Fleet Mix"):
-    total_stops = len(df_stops)
-    best_mix = None
-    lowest_cost = float("inf")
-
-    for buses in range(0, 7):  # includes 0 buses
-        for vans in range(0, 11):  # includes 0 vans
-            capacity = buses * bus_capacity + vans * van_capacity
-            if capacity >= total_stops:
-                drivers = buses + vans
-                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
-                if cost < lowest_cost:
-                    lowest_cost = cost
-                    best_mix = {
-                        "buses": buses,
-                        "vans": vans,
-                        "drivers": drivers,
-                        "cost": cost,
-                        "capacity": capacity
-                    }
-
-    if best_mix:
-        st.session_state["fleet_mix"] = best_mix
-    else:
-        st.error("No valid fleet mix found.")
-
-# === DISPLAY FLEET MIX RESULTS ===
-if "fleet_mix" in st.session_state:
-    mix = st.session_state["fleet_mix"]
-    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
-    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
-    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
-    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
-
-# === EXECUTIVE SUMMARY ===
-st.subheader("📊 Executive Summary")
-total_stops = len(df_stops)
-buses_needed = int(np.ceil(total_stops / bus_capacity))
-baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
-
-if "fleet_mix" in st.session_state:
-    optimized = st.session_state["fleet_mix"]
-    savings = baseline_cost - optimized["cost"]
-    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
-    safe_pct = round(100 * safe_count / total_stops, 1)
-    
-    st.markdown(f"""
-    ### ✅ FleetLab Optimization:
-    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
-    - **Drivers Needed**: {optimized['drivers']}  
-    - **Optimized Cost**: ${optimized['cost']:,.2f}  
-    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
-    - **Daily Savings**: ${savings:,.2f}  
-    - **% of Safe Stops**: {safe_pct}%  
-    """)
-else:
-    st.info("ℹ️ Run the optimizer to compare cost and safety improvements.")
+if "routes" in st.session_state and "G" in st.session_state:
+    st.subheader("📥 Download Routes")
+    geojson = export_routes_geojson(st.session_state["routes"], st.session_state["G"])
+    geojson_str = json.dumps(geojson)
+    st.download_button(
+        label="🗺️ Download Routes (GeoJSON)",
+        data=geojson_str,
+        file_name="routes.geojson",
+        mime="application/json"
+    )
 
 # === FINAL STOP TABLE ===
 st.subheader("📋 Final Stop Table")
 st.dataframe(df_stops, use_container_width=True)
+
+# === DOWNLOAD STOPS ===
+st.subheader("📥 Download Stops")
+csv_data = df_stops.to_csv(index=False).encode("utf-8")
+st.download_button(
+    label="📄 Download Stop Addresses (CSV)",
+    data=csv_data,
+    file_name="stops.csv",
+    mime="text/csv"
+)
