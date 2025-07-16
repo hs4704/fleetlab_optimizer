@@ -11,15 +11,21 @@ from preprocess import preprocess_excel_style_sheet
 import numpy as np
 from sklearn.cluster import KMeans
 
-# === SIMPLE CLUSTERING-BASED ROUTING ===
 def simple_route_solver(school_coords, stop_coords, n_routes=3):
+    from sklearn.cluster import KMeans
+
+    if len(stop_coords) < n_routes:
+        n_routes = max(1, len(stop_coords))
+
     kmeans = KMeans(n_clusters=n_routes, random_state=42).fit(stop_coords)
     labels = kmeans.labels_
 
     routes = []
     for i in range(n_routes):
         cluster = [pt for idx, pt in enumerate(stop_coords) if labels[idx] == i]
+        # sort by distance from school
         cluster.sort(key=lambda pt: (pt[0] - school_coords[0])**2 + (pt[1] - school_coords[1])**2)
+        # ensure school is first and last
         route = [school_coords] + cluster + [school_coords]
         routes.append(route)
 
@@ -132,7 +138,8 @@ try:
     st_folium(m, width=900)
 except Exception as e:
     st.error(f"❌ Map rendering error: {e}")
-
+st.write("📍 School coords:", st.session_state.get("school_coords"))
+st.write("📍 First few stop coords:", list(zip(df_stops['lat'], df_stops['lon']))[:3])
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 routing_mode = st.radio("Routing Mode", ["Simple Routing"])
