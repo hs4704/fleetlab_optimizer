@@ -5,12 +5,11 @@ import googlemaps
 import folium
 from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
-import matplotlib.pyplot as plt
 import time
 from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
 from preprocess import preprocess_excel_style_sheet
-from router import cluster_and_route_stops, export_routes_geojson
+from router import cluster_and_route_stops
 import numpy as np
 import osmnx as ox
 import networkx as nx
@@ -23,7 +22,6 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === GEOCODER FUNCTION (cached) ===
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -50,43 +48,26 @@ df_stops = None
 
 if mode == "Upload CSV":
     uploaded = st.sidebar.file_uploader("Upload stop CSV", type="csv")
-
     if uploaded:
         df_uploaded = pd.read_csv(uploaded)
         df_uploaded.columns = df_uploaded.columns.str.strip().str.lower()
-        st.warning(f"📋 Columns in uploaded file: {list(df_uploaded.columns)}")
 
         if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
             df_stops = preprocess_excel_style_sheet(df_uploaded)
-
-            if "school" not in df_stops.columns:
-                st.error("❌ 'School' column not found after processing.")
-                st.stop()
-
-            df_stops["school"] = df_stops["school"].astype(str).str.strip()
-            schools = sorted(df_stops["school"].dropna().unique())
-            selected_school = st.sidebar.selectbox("Select a school", schools)
-            df_stops = df_stops[df_stops["school"] == selected_school].copy()
-
-            try:
-                school_geocode = gmaps.geocode(selected_school)
-                if school_geocode:
-                    loc = school_geocode[0]["geometry"]["location"]
-                    st.session_state["school_coords"] = (loc["lat"], loc["lng"])
-            except:
-                st.warning("⚠️ Could not geocode school.")
         else:
             df_stops = df_uploaded
     else:
         try:
-            df_stops = pd.read_csv("sample_stops.csv")
-            df_stops = df_stops.dropna(subset=["lat", "lon"])
-            df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
-            st.session_state["df_stops"] = df_stops
-            school_lat = df_stops["lat"].mean()
-            school_lon = df_stops["lon"].mean()
-            st.session_state["school_coords"] = (school_lat, school_lon)
-            st.success(f"✅ Loaded {len(df_stops)} fallback stops from sample_stops.csv")
+            df_sample = pd.read_csv("sample_stops.csv")
+            df_sample.columns = df_sample.columns.str.strip().str.lower()
+
+            if "address" in df_sample.columns:
+                df_stops = df_sample.copy()
+                st.success(f"✅ Loaded fallback: {len(df_stops)} stops from sample_stops.csv")
+                st.session_state["school_coords"] = (42.2808, -83.7430)  # Example: Ann Arbor
+            else:
+                st.error("❌ sample_stops.csv missing required address column.")
+                st.stop()
         except Exception as e:
             st.error(f"❌ Failed to load sample_stops.csv: {e}")
             st.stop()
@@ -104,22 +85,23 @@ elif mode == "Simulate from School Name":
     else:
         st.stop()
 
-# === STEP 2: Geocode if missing lat/lon ===
+# === STEP 2: Geocode if lat/lon missing
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
-    if "Address" in df_stops.columns:
-        addresses = df_stops["Address"].fillna("").astype(str).tolist()
+    if "address" in df_stops.columns:
+        addresses = df_stops["address"].astype(str).fillna("").tolist()
         lats, lons = geocode_addresses(addresses)
         df_stops["lat"] = lats
         df_stops["lon"] = lons
     else:
-        st.error("No coordinates or Address found.")
+        st.error("❌ No coordinates or address column available for geocoding.")
         st.stop()
 
-# === STEP 3: Drop invalid coordinates
+# === STEP 3: Drop bad coordinates
 df_stops = df_stops.dropna(subset=["lat", "lon"])
+df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
 
 # === STEP 4: Safety scoring
-with st.spinner("Scoring stops..."):
+with st.spinner("🔍 Calculating SES and safety..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
@@ -143,7 +125,7 @@ try:
         ).add_to(cluster)
     st_folium(m, width=900)
 except Exception as e:
-    st.error(f"Map error: {e}")
+    st.error(f"❌ Map rendering error: {e}")
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
@@ -152,16 +134,16 @@ if st.button("Generate Routes"):
     try:
         school_coords = st.session_state.get("school_coords")
         if not school_coords:
-            st.error("No school location found.")
+            st.error("⚠️ No school location found.")
         else:
-            with st.spinner("Generating road-based routes..."):
+            with st.spinner("🚐 Routing on road network..."):
                 routes, G, clustered_stops = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=4)
                 st.session_state["routes"] = routes
                 st.session_state["G"] = G
                 st.session_state["clustered_stops"] = clustered_stops
                 st.success(f"✅ Generated {len(routes)} clustered routes.")
     except Exception as e:
-        st.error(f"Routing error: {e}")
+        st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
@@ -169,10 +151,6 @@ if "routes" in st.session_state and "G" in st.session_state:
     routes = st.session_state["routes"]
     G = st.session_state["G"]
     depot = st.session_state["school_coords"]
-
-    st.write("✅ Number of routes:", len(routes))
-    for rid, path in routes.items():
-        st.write(f"Route {rid} → nodes: {path[:5]}...")
 
     m = folium.Map(location=depot, zoom_start=13)
 
@@ -196,8 +174,6 @@ if "routes" in st.session_state and "G" in st.session_state:
             elif isinstance(line, MultiLineString):
                 for segment in line.geoms:
                     folium.PolyLine(list(segment.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
-            else:
-                st.warning(f"Route {rid} geometry type {type(line)} is not supported.")
         except Exception as e:
             st.warning(f"Route {rid} drawing failed: {e}")
 
