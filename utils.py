@@ -120,24 +120,25 @@ def autofill_missing_fields(df):
 
 # === SES CALCULATOR ===
 def calculate_ses(row):
+    def to_float(val, default=0.5):
+        try:
+            return float(val)
+        except:
+            return default
+
     weights = {
-        "Visibility (V)": 0.20,
-        "Lighting (L)": 0.10,
-        "Traffic Risk (T)": 0.30,
-        "Pedestrian Safety (P)": 0.15,
-        "Sidewalk Quality (S)": 0.10,
-        "Construction Risk (C)": 0.10,
-        "U-Turn Required (U)": 0.05
+        "V": 0.20, "L": 0.10, "T": 0.30,
+        "P": 0.15, "S": 0.10, "C": 0.10, "U": 0.05
     }
 
     adjusted = {
-        "Visibility (V)": row.get("Visibility (V)", 0.5),
-        "Lighting (L)": row.get("Lighting (L)", 0.5),
-        "Traffic Risk (T)": 1 - row.get("Traffic Risk (T)", 0.5),
-        "Pedestrian Safety (P)": row.get("Pedestrian Safety (P)", 0.5),
-        "Sidewalk Quality (S)": row.get("Sidewalk Quality (S)", 0.5),
-        "Construction Risk (C)": 1 - row.get("Construction Risk (C)", 0.2),
-        "U-Turn Required (U)": 1 - row.get("U-Turn Required (U)", 0)
+        "V": to_float(row.get("Visibility (V)", 0.5)),
+        "L": to_float(row.get("Lighting (L)", 0.5)),
+        "T": 1 - to_float(row.get("Traffic Risk (T)", 0.5)),
+        "P": to_float(row.get("Pedestrian Safety (P)", 0.5)),
+        "S": to_float(row.get("Sidewalk Quality (S)", 0.5)),
+        "C": 1 - to_float(row.get("Construction Risk (C)", 0.2)),
+        "U": 1 - to_float(row.get("U-Turn Required (U)", 0))
     }
 
     return sum(weights[k] * adjusted[k] for k in weights)
