@@ -243,11 +243,12 @@ if "routes" in st.session_state and "G" in st.session_state:
 
     import folium
     m = folium.Map(location=depot, zoom_start=12)
-
     colors = [
         "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
         "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
     ]
+
+    any_routes_drawn = False
 
     for rid, route_nodes in routes.items():
         full_path = []
@@ -255,19 +256,25 @@ if "routes" in st.session_state and "G" in st.session_state:
             try:
                 path = nx.shortest_path(G, u, v, weight='length')
                 full_path += path[:-1]
-            except:
+            except Exception as e:
+                print(f"[Routing ERROR] Route {rid}, {u} → {v}: {e}")
                 continue
         if route_nodes:
             full_path.append(route_nodes[-1])
 
-        # Convert OSM node IDs to lat/lon coordinates
-        route_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in full_path if n in G.nodes]
+        # Convert node IDs to (lat, lon)
+        route_coords = [
+            (G.nodes[n]['y'], G.nodes[n]['x'])
+            for n in full_path if n in G.nodes
+        ]
 
         if not route_coords:
-            continue  # skip if empty
+            print(f"[SKIP] Route {rid} has no valid coordinates.")
+            continue
 
         color = colors[rid % len(colors)]
         folium.PolyLine(route_coords, color=color, weight=6, opacity=0.85, tooltip=f"Route {rid}").add_to(m)
+        any_routes_drawn = True
 
         for i, (lat, lon) in enumerate(route_coords):
             folium.CircleMarker(
@@ -279,7 +286,10 @@ if "routes" in st.session_state and "G" in st.session_state:
                 popup=f"Route {rid} Stop {i}"
             ).add_to(m)
 
-    st_folium(m, width=950)
+    if not any_routes_drawn:
+        st.warning("⚠️ No routes could be drawn. Check console logs or expand road network area.")
+    else:
+        st_folium(m, width=950)
 
     geojson_data = export_routes_geojson(routes, G)
     st.download_button("📥 Download Routes (GeoJSON)", data=str(geojson_data), file_name="routes.geojson", mime="application/geo+json")
