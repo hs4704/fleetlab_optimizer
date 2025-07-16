@@ -178,15 +178,13 @@ if "routes" in st.session_state and "G" in st.session_state:
             st.warning(f"Route {rid} drawing failed: {e}")
 
     st_folium(m, width=950, height=600)
-# === 🚐 FLEET MIX OPTIMIZER ===
+# === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
-
-# Cost + capacity assumptions
 bus_capacity = 55
 van_capacity = 9
-bus_cost = 483  # daily
-van_cost = 95 + 8.33 + 16.31  # daily total ≈ $199.64
-driver_cost = 80  # daily per vehicle
+bus_cost = 483  
+van_cost = 95 + 8.33 + 16.31  # Total: $199.64
+driver_cost = 80
 
 if st.button("Optimize Fleet Mix"):
     total_stops = len(df_stops)
@@ -214,15 +212,15 @@ if st.button("Optimize Fleet Mix"):
     else:
         st.error("❌ No valid fleet mix found.")
 
-# === FLEET MIX DISPLAY ===
+# === DISPLAY RESULTS ===
 if "fleet_mix" in st.session_state:
     mix = st.session_state["fleet_mix"]
     st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
-    st.markdown(f"- **Estimated Daily Cost:** `${mix['cost']:,.2f}`")
+    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
 
-# === 📊 EXECUTIVE SUMMARY ===
+# === EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
 
 total_stops = len(df_stops)
@@ -233,22 +231,22 @@ if "fleet_mix" in st.session_state:
     mix = st.session_state["fleet_mix"]
     optimized_cost = mix["cost"]
     savings = baseline_cost - optimized_cost
-    savings_pct = round(100 * (savings / baseline_cost), 1)
+    savings_pct = round(100 * savings / baseline_cost, 1)
 
     num_safe = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
     pct_safe = round(100 * num_safe / total_stops, 1)
 
     st.markdown(f"""
     ### ✅ FleetLab Optimization Results:
-    - **Recommended Fleet:** {mix['buses']} Buses, {mix['vans']} Vans  
-    - **Drivers Needed:** {mix['drivers']}  
-    - **Daily Cost with FleetLab:** `${optimized_cost:,.2f}`  
-    - **Baseline (All Buses) Cost:** `${baseline_cost:,.2f}`  
-    - **Daily Savings:** `${savings:,.2f}` ({savings_pct}% lower)  
-    - **% of Safe Stops:** {pct_safe}%  
+    - **Recommended Fleet**: {mix['buses']} Buses, {mix['vans']} Vans  
+    - **Drivers Needed**: {mix['drivers']}  
+    - **Daily Cost with FleetLab**: ${optimized_cost:,.2f}  
+    - **Baseline (All Buses) Cost**: ${baseline_cost:,.2f}  
+    - **Daily Savings**: ${savings:,.2f} ({savings_pct}% lower)  
+    - **% of Safe Stops**: {pct_safe}%  
     """)
 else:
-    st.info("ℹ️ Run the Fleet Mix Optimizer to unlock the full summary.")
+    st.info("ℹ️ Run the Fleet Mix Optimizer to view the summary.")
 # === STOP TABLE ===
 st.subheader("📋 Stop Table")
 st.dataframe(df_stops)
