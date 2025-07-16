@@ -15,6 +15,21 @@ import osmnx as ox
 import networkx as nx
 from shapely.geometry import LineString, MultiLineString
 
+def simple_route_solver(school_coords, stop_coords, n_routes=3):
+    from sklearn.cluster import KMeans
+
+    kmeans = KMeans(n_clusters=n_routes, random_state=42).fit(stop_coords)
+    labels = kmeans.labels_
+
+    routes = []
+    for i in range(n_routes):
+        cluster = [pt for idx, pt in enumerate(stop_coords) if labels[idx] == i]
+        cluster.sort(key=lambda pt: (pt[0] - school_coords[0])**2 + (pt[1] - school_coords[1])**2)
+        route = [school_coords] + cluster + [school_coords]
+        routes.append(route)
+
+    return routes
+
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
 st.title("🚌 FleetLab Routing & Cost Optimizer")
 
@@ -129,52 +144,41 @@ except Exception as e:
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
+
+routing_mode = st.radio("Routing Mode", ["Simple Routing"])
 if st.button("Generate Routes"):
-    try:
-        school_coords = st.session_state.get("school_coords")
-        if not school_coords:
-            st.error("⚠️ No school location found.")
-        else:
-            with st.spinner("🚐 Routing on road network..."):
-                routes, G, clustered_stops = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=4)
-                st.session_state["routes"] = routes
-                st.session_state["G"] = G
-                st.session_state["clustered_stops"] = clustered_stops
-                st.success(f"✅ Generated {len(routes)} clustered routes.")
+    school_coords = st.session_state.get("school_coords")
+    if not school_coords:
+        st.error("⚠️ No school location available.")
+    else:
+        stop_coords = list(zip(df_stops["lat"], df_stops["lon"]))
+        with st.spinner("🧭 Generating simple clustered routes..."):
+            routes = simple_route_solver(school_coords, stop_coords, n_routes=3)
+            st.session_state["routes"] = routes
+            st.success(f"✅ Generated {len(routes)} simple clustered routes.")
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
-if "routes" in st.session_state and "all_locations" in st.session_state:
-    st.subheader("📍 Optimized Route Map (Simplified)")
+if "routes" in st.session_state:
+    st.subheader("📍 Simple Route Map")
     routes = st.session_state["routes"]
-    all_locations = st.session_state["all_locations"]
+    m = folium.Map(location=st.session_state["school_coords"], zoom_start=13)
 
-    # Color palette for route lines
-    color_palette = [
-        "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
-        "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
-    ]
-
-    m = folium.Map(location=all_locations[0], zoom_start=12)
-
+    colors = ["red", "blue", "green", "purple", "orange"]
     for i, route in enumerate(routes):
-        color = color_palette[i % len(color_palette)]
-        points = [all_locations[idx] for idx in route]
-
-        folium.PolyLine(points, color=color, weight=5, opacity=0.85, tooltip=f"Route {i+1}").add_to(m)
-
-        for j, pt in enumerate(points):
+        folium.PolyLine(route, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
+        for j, pt in enumerate(route):
             folium.CircleMarker(
                 location=pt,
-                radius=5,
-                color=color,
+                radius=4,
+                color=colors[i % len(colors)],
                 fill=True,
-                fill_opacity=0.9,
-                popup=f"Route {i+1} - {'Depot' if j == 0 else f'Stop {j}'}"
+                fill_opacity=0.8,
+                popup=f"R{i+1} - Stop {j}"
             ).add_to(m)
 
-    st_folium(m, width=950, height=600)
+    st_folium(m, width=900, height=600)
 
 # === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
