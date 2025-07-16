@@ -142,55 +142,56 @@ st.write("📍 School coords:", st.session_state.get("school_coords"))
 st.write("📍 First few stop coords:", list(zip(df_stops['lat'], df_stops['lon']))[:3])
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
-routing_mode = st.radio("Routing Mode", ["Simple Routing"])
 if st.button("Generate Routes"):
-    school_coords = st.session_state.get("school_coords")
-    if not school_coords:
-        st.error("⚠️ No school location available.")
-    else:
-        stop_coords = [
-            (lat, lon) for lat, lon in zip(df_stops["lat"], df_stops["lon"])
-            if isinstance(lat, (float, int)) and isinstance(lon, (float, int)) and pd.notnull(lat) and pd.notnull(lon)
-        ]
-        with st.spinner("🧭 Generating simple clustered routes..."):
-            try:
-                routes = simple_route_solver(school_coords, stop_coords, n_routes=3)
+    try:
+        school_coords = st.session_state.get("school_coords")
+        if not school_coords:
+            st.error("⚠️ No school location available.")
+        else:
+            with st.spinner("🚐 Routing on real roads..."):
+                from router import cluster_and_route_stops
+                routes, G, clustered_df = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=3)
                 st.session_state["routes"] = routes
-                st.success(f"✅ Generated {len(routes)} simple clustered routes.")
-            except Exception as e:
-                st.error(f"❌ Routing error: {e}")
+                st.session_state["G"] = G
+                st.session_state["clustered_df"] = clustered_df
+                st.success(f"✅ Generated {len(routes)} OSM-based routes.")
+    except Exception as e:
+        st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
-if "routes" in st.session_state:
-    st.subheader("📍 Simple Route Map")
+if "routes" in st.session_state and "G" in st.session_state:
+    st.subheader("📍 Optimized OSM-Based Route Map")
     routes = st.session_state["routes"]
-    m = folium.Map(location=st.session_state["school_coords"], zoom_start=13)
+    G = st.session_state["G"]
+    clustered_df = st.session_state["clustered_df"]
+    depot = st.session_state["school_coords"]
 
-    colors = ["red", "blue", "green", "purple", "orange"]
-    for i, route in enumerate(routes):
-        if not route or not isinstance(route, list):
-            continue
+    m = folium.Map(location=depot, zoom_start=13)
+    colors = ["red", "blue", "green", "purple", "orange", "darkred"]
 
-        valid_coords = [
-            pt for pt in route
-            if isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(x, (float, int)) for x in pt)
-        ]
-        if not valid_coords:
-            st.warning(f"⚠️ Route {i+1} has no valid coordinates.")
-            continue
+    for cid, route_nodes in routes.items():
+        full_path = []
+        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
+            try:
+                segment = nx.shortest_path(G, u, v, weight='length')
+                full_path += segment[:-1]
+            except:
+                continue
+        full_path.append(route_nodes[-1])
 
-        folium.PolyLine(valid_coords, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
-        for j, pt in enumerate(valid_coords):
-            folium.CircleMarker(
-                location=pt,
-                radius=4,
-                color=colors[i % len(colors)],
-                fill=True,
-                fill_opacity=0.8,
-                popup=f"R{i+1} - Stop {j}"
-            ).add_to(m)
+        try:
+            edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
+            line = edge_gdf.geometry.unary_union
 
-    st_folium(m, width=900, height=600)
+            if isinstance(line, LineString):
+                folium.PolyLine(list(line.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
+            elif isinstance(line, MultiLineString):
+                for segment in line.geoms:
+                    folium.PolyLine(list(segment.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
+        except:
+            st.warning(f"Route {cid} plotting failed.")
+
+    st_folium(m, width=950, height=600)
     # === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55

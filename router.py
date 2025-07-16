@@ -5,6 +5,8 @@ import networkx as nx
 from sklearn.cluster import KMeans
 from shapely.geometry import Point
 import geopandas as gpd
+import pandas as pd
+
 
 
 def cluster_stops(df_stops, n_clusters=3):
@@ -47,24 +49,42 @@ def route_cluster(cluster_df, G, school_latlon):
     return ordered_osmids
 
 
+
 def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
-    """
-    Clusters stops using KMeans, then solves a TSP route for each cluster using OSMnx.
-    Returns a dict of routes (OSM node ID lists), the road graph G, and the clustered DataFrame.
-    """
-    df_clustered = cluster_stops(df_stops.copy(), n_clusters)
+    # Cluster the stops
+    coords = df_stops[["lat", "lon"]].values
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42).fit(coords)
+    df_stops["cluster"] = kmeans.labels_
+
+    # Get road graph
     G = ox.graph_from_point(school_coords, dist=3000, network_type="drive")
+
+    # Convert lat/lon to nearest OSM node
+    df_stops["osmid"] = df_stops.apply(lambda row: ox.distance.nearest_nodes(G, row["lon"], row["lat"]), axis=1)
+    school_node = ox.distance.nearest_nodes(G, school_coords[1], school_coords[0])
+
     routes = {}
 
-    for cid in sorted(df_clustered["cluster"].unique()):
-        group = df_clustered[df_clustered["cluster"] == cid]
-        route_nodes = route_cluster(group, G, school_coords)
-        routes[cid] = route_nodes
+    for cid in sorted(df_stops["cluster"].unique()):
+        cluster_df = df_stops[df_stops["cluster"] == cid]
+        stop_nodes = list(cluster_df["osmid"])
+        all_nodes = [school_node] + stop_nodes
 
-    return routes, G, df_clustered
+        tsp_graph = nx.complete_graph(len(all_nodes))
+        for i in tsp_graph.nodes:
+            for j in tsp_graph.nodes:
+                if i != j:
+                    try:
+                        length = nx.shortest_path_length(G, all_nodes[i], all_nodes[j], weight="length")
+                        tsp_graph[i][j]["weight"] = length
+                    except:
+                        tsp_graph[i][j]["weight"] = float("inf")
 
+        tsp_cycle = nx.approximation.traveling_salesman_problem(tsp_graph, cycle=True)
+        ordered_osmids = [all_nodes[i] for i in tsp_cycle]
+        routes[cid] = ordered_osmids
 
-def export_routes_geojson(routes, G):
+    return routes, G, df_stopsdef export_routes_geojson(routes, G):
     """
     Converts OSM route node paths into a GeoJSON FeatureCollection.
     Each segment is added with a `route` property.
