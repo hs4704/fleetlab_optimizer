@@ -96,29 +96,26 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
 
 # === SAFETY FACTOR FILLER ===
 def autofill_missing_fields(df):
-    def ensure_column(df, col, default):
+    safety_columns = [
+        "Visibility (V)", "Lighting (L)", "Traffic Risk (T)",
+        "Pedestrian Safety (P)", "Sidewalk Quality (S)",
+        "Construction Risk (C)", "U-Turn Required (U)"
+    ]
+
+    # Ensure numeric dtype and do NOT overwrite existing valid values
+    for col, default in [
+        ("Visibility (V)", 0.6), ("Lighting (L)", 0.5),
+        ("Traffic Risk (T)", 0.5), ("Pedestrian Safety (P)", 0.5),
+        ("Sidewalk Quality (S)", 0.5), ("Construction Risk (C)", 0.2),
+        ("U-Turn Required (U)", 0)
+    ]:
         if col not in df.columns:
             df[col] = default
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-        df[col] = df[col].fillna(default)
-        return df
-
-    fields = {
-        "Visibility (V)": 0.6,
-        "Lighting (L)": 0.5,
-        "Traffic Risk (T)": 0.5,
-        "Pedestrian Safety (P)": 0.5,
-        "Sidewalk Quality (S)": 0.5,
-        "Construction Risk (C)": 0.2,
-        "U-Turn Required (U)": 0,
-    }
-
-    for col, default in fields.items():
-        df = ensure_column(df, col, default)
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
 
     return df
-
-# === SES CALCULATOR ===
+# == SES CALCULATOR ===
 def calculate_ses(row):
     def to_float(val, default=0.5):
         try:
