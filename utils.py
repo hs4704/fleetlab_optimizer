@@ -5,7 +5,7 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon, MultiPolygon
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
@@ -30,9 +30,7 @@ def geocode_school_address(address):
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
     districts = districts[districts.geometry.type.isin(["Polygon", "MultiPolygon"])]
-
-    # Debug info (optional)
-    # st.warning(f"📂 GeoJSON geometry types: {districts.geometry.type.unique()}")
+    st.warning(f"📂 GeoJSON geometry types: {districts.geometry.type.unique()}")
 
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
@@ -44,8 +42,7 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     row = joined.iloc[0]
     geometry = row.geometry
 
-    # Debug info (optional)
-    # st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
+    st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
     st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
     return geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 
@@ -100,56 +97,47 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
 # === SAFETY FACTOR FILLER ===
 def autofill_missing_fields(df):
     for idx, row in df.iterrows():
-        address = row.get("Address", "Unknown Address")
         lat, lon = row.get("lat"), row.get("lon")
 
-        # === Traffic Risk fallback ===
-        if 'Traffic Risk (T)' not in df.columns or pd.isna(row.get('Traffic Risk (T)')):
-            df.at[idx, 'Traffic Risk (T)'] = 0.5
-
-        # === U-Turn fallback ===
-        if 'U-Turn Required (U)' not in df.columns or pd.isna(row.get('U-Turn Required (U)')):
-            df.at[idx, 'U-Turn Required (U)'] = 0
-
-        # === Construction Risk using OSM 'highway=construction' ===
-        if 'Construction Risk (C)' not in df.columns or pd.isna(row.get('Construction Risk (C)')):
-            try:
-                construction = ox.geometries_from_point(
-                    (lat, lon),
-                    tags={"highway": "construction"},
-                    dist=100
-                )
-                df.at[idx, 'Construction Risk (C)'] = 0.9 if not construction.empty else 0.2
-            except Exception as e:
-                if "No matching features" not in str(e):
-                    print(f"[Construction Risk ERROR] {e}")
-                df.at[idx, 'Construction Risk (C)'] = 0.2
-
-        # === Visibility, Lighting, Pedestrian Safety, Sidewalk Quality fallbacks ===
-        for col, default in [
-            ("Visibility (V)", 0.6),
-            ("Lighting (L)", 0.5),
-            ("Pedestrian Safety (P)", 0.5),
-            ("Sidewalk Quality (S)", 0.5),
-        ]:
+        def safe_assign(col, default, compute=None):
             if col not in df.columns or pd.isna(row.get(col)):
-                df.at[idx, col] = default
+                value = compute() if compute else default
+                df.at[idx, col] = value
+
+        safe_assign('Traffic Risk (T)', 0.5)
+        safe_assign('U-Turn Required (U)', 0)
+
+        safe_assign('Construction Risk (C)', 0.2, compute=lambda: (
+            0.9 if not ox.features_from_point((lat, lon), tags={"highway": "construction"}, dist=100).empty else 0.2
+        ))
+
+        safe_assign('Visibility (V)', 0.6)
+        safe_assign('Lighting (L)', 0.5)
+        safe_assign('Pedestrian Safety (P)', 0.5)
+        safe_assign('Sidewalk Quality (S)', 0.5)
 
     return df
 
 # === SES CALCULATOR ===
 def calculate_ses(row):
     weights = {
-        "V": 0.20, "L": 0.10, "T": 0.30,
-        "P": 0.15, "S": 0.10, "C": 0.10, "U": 0.05
+        "Visibility (V)": 0.20,
+        "Lighting (L)": 0.10,
+        "Traffic Risk (T)": 0.30,
+        "Pedestrian Safety (P)": 0.15,
+        "Sidewalk Quality (S)": 0.10,
+        "Construction Risk (C)": 0.10,
+        "U-Turn Required (U)": 0.05
     }
+
     adjusted = {
-        "V": row.get("Visibility (V)", 0.5),
-        "L": row.get("Lighting (L)", 0.5),
-        "T": 1 - row.get("Traffic Risk (T)", 0.5),
-        "P": row.get("Pedestrian Safety (P)", 0.5),
-        "S": row.get("Sidewalk Quality (S)", 0.5),
-        "C": 1 - row.get("Construction Risk (C)", 0.2),
-        "U": 1 - row.get("U-Turn Required (U)", 0)
+        "Visibility (V)": row.get("Visibility (V)", 0.5),
+        "Lighting (L)": row.get("Lighting (L)", 0.5),
+        "Traffic Risk (T)": 1 - row.get("Traffic Risk (T)", 0.5),
+        "Pedestrian Safety (P)": row.get("Pedestrian Safety (P)", 0.5),
+        "Sidewalk Quality (S)": row.get("Sidewalk Quality (S)", 0.5),
+        "Construction Risk (C)": 1 - row.get("Construction Risk (C)", 0.2),
+        "U-Turn Required (U)": 1 - row.get("U-Turn Required (U)", 0)
     }
+
     return sum(weights[k] * adjusted[k] for k in weights)
