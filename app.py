@@ -104,6 +104,7 @@ df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))
 with st.spinner("🔍 Calculating SES and safety..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
+    st.write("🔎 Sample SES values:", df_stops[["Stop Name", "SES Score", "Visibility (V)", "Lighting (L)", "Traffic Risk (T)", "Construction Risk (C)"]])
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )

@@ -96,25 +96,25 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
 
 # === SAFETY FACTOR FILLER ===
 def autofill_missing_fields(df):
-    for idx, row in df.iterrows():
-        lat, lon = row.get("lat"), row.get("lon")
+    def ensure_column(df, col, default):
+        if col not in df.columns:
+            df[col] = default
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        df[col] = df[col].fillna(default)
+        return df
 
-        def safe_assign(col, default, compute=None):
-            if col not in df.columns or pd.isna(row.get(col)):
-                value = compute() if compute else default
-                df.at[idx, col] = value
+    fields = {
+        "Visibility (V)": 0.6,
+        "Lighting (L)": 0.5,
+        "Traffic Risk (T)": 0.5,
+        "Pedestrian Safety (P)": 0.5,
+        "Sidewalk Quality (S)": 0.5,
+        "Construction Risk (C)": 0.2,
+        "U-Turn Required (U)": 0,
+    }
 
-        safe_assign('Traffic Risk (T)', 0.5)
-        safe_assign('U-Turn Required (U)', 0)
-
-        safe_assign('Construction Risk (C)', 0.2, compute=lambda: (
-            0.9 if not ox.features_from_point((lat, lon), tags={"highway": "construction"}, dist=100).empty else 0.2
-        ))
-
-        safe_assign('Visibility (V)', 0.6)
-        safe_assign('Lighting (L)', 0.5)
-        safe_assign('Pedestrian Safety (P)', 0.5)
-        safe_assign('Sidewalk Quality (S)', 0.5)
+    for col, default in fields.items():
+        df = ensure_column(df, col, default)
 
     return df
 
