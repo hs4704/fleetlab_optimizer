@@ -10,6 +10,8 @@ from utils import autofill_missing_fields, calculate_ses
 from preprocess import preprocess_excel_style_sheet
 import numpy as np
 from sklearn.cluster import KMeans
+import osmnx as ox
+school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
 
 def simple_route_solver(school_coords, stop_coords, n_routes=3):
     from sklearn.cluster import KMeans
@@ -163,36 +165,39 @@ if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📍 Optimized OSM-Based Route Map")
     routes = st.session_state["routes"]
     G = st.session_state["G"]
-    clustered_df = st.session_state["clustered_df"]
-    depot = st.session_state["school_coords"]
+    clustered_df = st.session_state.get("clustered_df")
 
-    m = folium.Map(location=depot, zoom_start=13)
-    colors = ["red", "blue", "green", "purple", "orange", "darkred"]
+    if clustered_df is None:
+        st.warning("No clustered stop data available. Please run routing first.")
+    else:
+        depot = st.session_state["school_coords"]
+        m = folium.Map(location=depot, zoom_start=13)
+        colors = ["red", "blue", "green", "purple", "orange", "darkred"]
 
-    for cid, route_nodes in routes.items():
-        full_path = []
-        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
+        for cid, route_nodes in routes.items():
+            full_path = []
+            for u, v in zip(route_nodes[:-1], route_nodes[1:]):
+                try:
+                    segment = nx.shortest_path(G, u, v, weight='length')
+                    full_path += segment[:-1]
+                except:
+                    continue
+            full_path.append(route_nodes[-1])
+
             try:
-                segment = nx.shortest_path(G, u, v, weight='length')
-                full_path += segment[:-1]
+                edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
+                line = edge_gdf.geometry.unary_union
+
+                if isinstance(line, LineString):
+                    folium.PolyLine(list(line.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
+                elif isinstance(line, MultiLineString):
+                    for segment in line.geoms:
+                        folium.PolyLine(list(segment.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
             except:
-                continue
-        full_path.append(route_nodes[-1])
+                st.warning(f"Route {cid} plotting failed.")
 
-        try:
-            edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
-            line = edge_gdf.geometry.unary_union
-
-            if isinstance(line, LineString):
-                folium.PolyLine(list(line.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
-            elif isinstance(line, MultiLineString):
-                for segment in line.geoms:
-                    folium.PolyLine(list(segment.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
-        except:
-            st.warning(f"Route {cid} plotting failed.")
-
-    st_folium(m, width=950, height=600)
-    # === OPTIMIZE FLEET MIX ===
+        st_folium(m, width=950, height=600)
+# === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
 van_capacity = 9
