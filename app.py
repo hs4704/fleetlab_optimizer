@@ -14,6 +14,7 @@ from router import cluster_and_route_stops, export_routes_geojson
 import numpy as np
 import osmnx as ox
 import networkx as nx
+from shapely.geometry import LineString, MultiLineString
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
@@ -177,13 +178,17 @@ if "routes" in st.session_state and "G" in st.session_state:
             full_path.append(route_nodes[-1])
 
         try:
-            # ✅ Use correct OSMnx function
             edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
             line = edge_gdf.unary_union
-            if line.is_empty:
-                continue
-            coords = list(line.coords)
-            folium.PolyLine(coords, color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
+
+            if isinstance(line, LineString):
+                folium.PolyLine(list(line.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
+            elif isinstance(line, MultiLineString):
+                for segment in line.geoms:
+                    folium.PolyLine(list(segment.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
+            else:
+                st.warning(f"Route {rid} geometry type {type(line)} is not supported.")
+
         except Exception as e:
             st.warning(f"Route {rid} drawing failed: {e}")
 
