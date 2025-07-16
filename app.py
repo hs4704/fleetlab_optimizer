@@ -16,6 +16,8 @@ from shapely.geometry import LineString, MultiLineString
 import matplotlib.pyplot as plt
 from osmnx import graph_to_gdfs
 import geopandas as gpd
+from router import export_routes_geojson
+import json
 
 # Ensure session keys exist
 if "routes" not in st.session_state:
@@ -287,8 +289,6 @@ if "routes" in st.session_state and "G" in st.session_state:
     ax.legend(loc='lower right')
     st.pyplot(fig)
 # === DOWNLOAD ROUTES ===
-from router import export_routes_geojson
-import json
 
 if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📥 Download Routes")

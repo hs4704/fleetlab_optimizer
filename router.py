@@ -74,22 +74,22 @@ def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
     return routes, G, df_stops
 
 def export_routes_geojson(routes, G):
-    """
-    Converts TSP routes into a GeoJSON feature collection.
-    """
     features = []
     for rid, path in routes.items():
         for u, v in zip(path[:-1], path[1:]):
             try:
                 segment = nx.shortest_path(G, u, v, weight="length")
-                line = ox.utils_graph.graph_to_gdfs(G.subgraph(segment), nodes=False).geometry.union_all()
+                line = ox.utils_graph.graph_to_gdfs(G.subgraph(segment), nodes=False).geometry.unary_union
                 features.append({
                     "type": "Feature",
                     "geometry": line.__geo_interface__,
                     "properties": {"route": int(rid)}
                 })
-            except Exception:
+            except Exception as e:
+                print(f"Route {rid} segment {u} → {v} failed: {e}")
                 continue
+
+    print(f"✅ Exported {len(features)} route features")
     return {
         "type": "FeatureCollection",
         "features": features
