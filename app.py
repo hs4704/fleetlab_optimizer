@@ -62,11 +62,25 @@ if mode == "Upload CSV":
     if uploaded:
         df_uploaded = pd.read_csv(uploaded)
         df_uploaded.columns = df_uploaded.columns.str.strip()
+
         if "home address" in df_uploaded.columns.str.lower().tolist():
-            df_stops = preprocess_excel_style_sheet(df_uploaded)
+            df_uploaded = preprocess_excel_style_sheet(df_uploaded)
+
+        if "School" in df_uploaded.columns:
+            school_names = sorted(df_uploaded["School"].dropna().unique())
+            selected_school = st.sidebar.selectbox("Select school to route from:", school_names)
+            df_stops = df_uploaded[df_uploaded["School"] == selected_school].copy()
+
+            if "Address" in df_stops.columns:
+                st.session_state["school_coords"] = (df_stops["lat"].mean(), df_stops["lon"].mean())
+            else:
+                st.error("❌ No Address column found in school-specific data.")
+                st.stop()
         else:
-            df_stops = df_uploaded
+            df_stops = df_uploaded.copy()
+            st.warning("⚠️ No 'School' column found — routing all stops.")
     else:
+        # fallback: load sample
         try:
             df_sample = pd.read_csv("sample_stops.csv")
             df_sample.columns = df_sample.columns.str.strip()
