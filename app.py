@@ -177,7 +177,7 @@ if "routes" in st.session_state and "G" in st.session_state:
             full_path.append(route_nodes[-1])
 
         try:
-            edge_gdf = ox.utils_graph.graph_to_gdfs(G.subgraph(full_path), nodes=False)
+            edge_gdf = ox.graph.to_gdfs(G.subgraph(full_path), nodes=False)
             line = edge_gdf.unary_union
             if line.is_empty:
                 continue
