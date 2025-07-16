@@ -147,15 +147,16 @@ st.subheader("🗺️ Route Planner")
 
 routing_mode = st.radio("Routing Mode", ["Simple Routing"])
 if st.button("Generate Routes"):
-    school_coords = st.session_state.get("school_coords")
-    if not school_coords:
-        st.error("⚠️ No school location available.")
-    else:
-        stop_coords = list(zip(df_stops["lat"], df_stops["lon"]))
-        with st.spinner("🧭 Generating simple clustered routes..."):
-            routes = simple_route_solver(school_coords, stop_coords, n_routes=3)
-            st.session_state["routes"] = routes
-            st.success(f"✅ Generated {len(routes)} simple clustered routes.")
+    try:
+        school_coords = st.session_state.get("school_coords")
+        if not school_coords:
+            st.error("⚠️ No school location available.")
+        else:
+            stop_coords = list(zip(df_stops["lat"], df_stops["lon"]))
+            with st.spinner("🧭 Generating simple clustered routes..."):
+                routes = simple_route_solver(school_coords, stop_coords, n_routes=3)
+                st.session_state["routes"] = routes
+                st.success(f"✅ Generated {len(routes)} simple clustered routes.")
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
