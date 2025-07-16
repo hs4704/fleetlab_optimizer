@@ -13,7 +13,13 @@ from sklearn.cluster import KMeans
 import osmnx as ox
 import networkx as nx
 from shapely.geometry import LineString, MultiLineString
-
+# Ensure session keys exist
+if "routes" not in st.session_state:
+    st.session_state["routes"] = None
+if "G" not in st.session_state:
+    st.session_state["G"] = None
+if "clustered_df" not in st.session_state:
+    st.session_state["clustered_df"] = None
 # === PAGE CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
 st.title("🚌 FleetLab Routing & Cost Optimizer")
@@ -142,16 +148,15 @@ if st.button("Generate Routes"):
         st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
-if "routes" in st.session_state and "G" in st.session_state:
+if st.session_state["routes"] and st.session_state["G"]:
     st.subheader("📍 Optimized OSM-Based Route Map")
     routes = st.session_state["routes"]
     G = st.session_state["G"]
-    clustered_df = st.session_state.get("clustered_df")
+    clustered_df = st.session_state.get("clustered_df", None)
 
-    if clustered_df is None:
-        st.warning("No clustered stop data available. Please run routing first.")
-    else:
+    try:
         depot = st.session_state["school_coords"]
+        school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
         m = folium.Map(location=depot, zoom_start=13)
         colors = ["red", "blue", "green", "purple", "orange", "darkred"]
 
@@ -162,22 +167,12 @@ if "routes" in st.session_state and "G" in st.session_state:
                     segment = nx.shortest_path(G, u, v, weight='length')
                     full_path += segment[:-1]
                 except Exception as e:
-                    st.warning(f"❌ Segment {u} → {v} failed in Route {cid}: {e}")
+                    st.warning(f"Route {cid} segment failed: {e}")
                     continue
             full_path.append(route_nodes[-1])
 
             try:
-                full_path = list(dict.fromkeys(full_path))
-                subgraph = G.subgraph(full_path)
-                if not subgraph.edges:
-                    st.warning(f"⚠️ Empty subgraph for Route {cid}. Skipping.")
-                    continue
-
-                edge_gdf = ox.graph_to_gdfs(subgraph, nodes=False)
-                if edge_gdf.empty:
-                    st.warning(f"⚠️ No edges found for Route {cid}. Skipping.")
-                    continue
-
+                edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
                 line = edge_gdf.geometry.unary_union
 
                 if isinstance(line, LineString):
@@ -185,8 +180,78 @@ if "routes" in st.session_state and "G" in st.session_state:
                 elif isinstance(line, MultiLineString):
                     for segment in line.geoms:
                         folium.PolyLine(list(segment.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
-
             except Exception as e:
-                st.warning(f"❌ Route {cid} plotting failed: {e}")
+                st.warning(f"Route {cid} plotting failed: {e}")
 
         st_folium(m, width=950, height=600)
+    except Exception as e:
+        st.error(f"❌ Failed to display route map: {e}")
+# === OPTIMIZE FLEET MIX ===
+st.subheader("🚐 Fleet Mix Optimizer")
+bus_capacity = 55
+van_capacity = 9
+bus_cost = 483  
+van_cost = 95 + 8.33 + 16.31  # Total: 199.64
+driver_cost = 80
+
+if st.button("Optimize Fleet Mix"):
+    total_stops = len(df_stops)
+    best_mix = None
+    lowest_cost = float("inf")
+
+    for buses in range(0, 7):  # includes 0 buses
+        for vans in range(0, 11):  # includes 0 vans
+            capacity = buses * bus_capacity + vans * van_capacity
+            if capacity >= total_stops:
+                drivers = buses + vans
+                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+                if cost < lowest_cost:
+                    lowest_cost = cost
+                    best_mix = {
+                        "buses": buses,
+                        "vans": vans,
+                        "drivers": drivers,
+                        "cost": cost,
+                        "capacity": capacity
+                    }
+
+    if best_mix:
+        st.session_state["fleet_mix"] = best_mix
+    else:
+        st.error("No valid fleet mix found.")
+
+# === DISPLAY FLEET MIX RESULTS ===
+if "fleet_mix" in st.session_state:
+    mix = st.session_state["fleet_mix"]
+    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
+    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
+    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
+    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
+
+# === EXECUTIVE SUMMARY ===
+st.subheader("📊 Executive Summary")
+total_stops = len(df_stops)
+buses_needed = int(np.ceil(total_stops / bus_capacity))
+baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
+
+if "fleet_mix" in st.session_state:
+    optimized = st.session_state["fleet_mix"]
+    savings = baseline_cost - optimized["cost"]
+    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
+    safe_pct = round(100 * safe_count / total_stops, 1)
+    
+    st.markdown(f"""
+    ### ✅ FleetLab Optimization:
+    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
+    - **Drivers Needed**: {optimized['drivers']}  
+    - **Optimized Cost**: ${optimized['cost']:,.2f}  
+    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
+    - **Daily Savings**: ${savings:,.2f}  
+    - **% of Safe Stops**: {safe_pct}%  
+    """)
+else:
+    st.info("ℹ️ Run the optimizer to compare cost and safety improvements.")
+
+# === FINAL STOP TABLE ===
+st.subheader("📋 Final Stop Table")
+st.dataframe(df_stops, use_container_width=True)
