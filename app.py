@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import googlemaps
@@ -9,15 +8,11 @@ import time
 from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
 from preprocess import preprocess_excel_style_sheet
-from router import cluster_and_route_stops
 import numpy as np
-import osmnx as ox
-import networkx as nx
-from shapely.geometry import LineString, MultiLineString
+from sklearn.cluster import KMeans
 
+# === SIMPLE CLUSTERING-BASED ROUTING ===
 def simple_route_solver(school_coords, stop_coords, n_routes=3):
-    from sklearn.cluster import KMeans
-
     kmeans = KMeans(n_clusters=n_routes, random_state=42).fit(stop_coords)
     labels = kmeans.labels_
 
@@ -30,6 +25,7 @@ def simple_route_solver(school_coords, stop_coords, n_routes=3):
 
     return routes
 
+# === PAGE CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
 st.title("🚌 FleetLab Routing & Cost Optimizer")
 
@@ -75,7 +71,7 @@ if mode == "Upload CSV":
             if "Address" in df_sample.columns:
                 df_stops = df_sample.copy()
                 st.success(f"✅ Loaded fallback: {len(df_stops)} stops from sample_stops.csv")
-                st.session_state["school_coords"] = (42.2808, -83.7430)  # Ann Arbor
+                st.session_state["school_coords"] = (42.2808, -83.7430)
             else:
                 st.error("❌ sample_stops.csv missing 'Address' column.")
                 st.stop()
@@ -106,7 +102,7 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
         st.error("❌ No coordinates or address column available.")
         st.stop()
 
-# === STEP 3: Drop bad coordinates
+# === STEP 3: Drop invalid coordinates
 df_stops = df_stops.dropna(subset=["lat", "lon"])
 df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
 
@@ -117,11 +113,6 @@ with st.spinner("🔍 Calculating SES and safety..."):
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
-
-# === Optional SES preview
-if all(col in df_stops.columns for col in ["Stop Name", "SES Score"]):
-    st.write("🔎 Sample SES values:")
-    st.dataframe(df_stops[["Stop Name", "SES Score", "Safety Rating"]])
 
 # === SAFETY MAP ===
 st.subheader("📍 Stop Safety Map")
@@ -144,21 +135,23 @@ except Exception as e:
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
-
 routing_mode = st.radio("Routing Mode", ["Simple Routing"])
 if st.button("Generate Routes"):
-    try:
-        school_coords = st.session_state.get("school_coords")
-        if not school_coords:
-            st.error("⚠️ No school location available.")
-        else:
-            stop_coords = list(zip(df_stops["lat"], df_stops["lon"]))
-            with st.spinner("🧭 Generating simple clustered routes..."):
+    school_coords = st.session_state.get("school_coords")
+    if not school_coords:
+        st.error("⚠️ No school location available.")
+    else:
+        stop_coords = [
+            (lat, lon) for lat, lon in zip(df_stops["lat"], df_stops["lon"])
+            if isinstance(lat, (float, int)) and isinstance(lon, (float, int)) and pd.notnull(lat) and pd.notnull(lon)
+        ]
+        with st.spinner("🧭 Generating simple clustered routes..."):
+            try:
                 routes = simple_route_solver(school_coords, stop_coords, n_routes=3)
                 st.session_state["routes"] = routes
                 st.success(f"✅ Generated {len(routes)} simple clustered routes.")
-    except Exception as e:
-        st.error(f"❌ Routing error: {e}")
+            except Exception as e:
+                st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
 if "routes" in st.session_state:
@@ -168,83 +161,21 @@ if "routes" in st.session_state:
 
     colors = ["red", "blue", "green", "purple", "orange"]
     for i, route in enumerate(routes):
-        folium.PolyLine(route, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
-        for j, pt in enumerate(route):
-            folium.CircleMarker(
-                location=pt,
-                radius=4,
-                color=colors[i % len(colors)],
-                fill=True,
-                fill_opacity=0.8,
-                popup=f"R{i+1} - Stop {j}"
-            ).add_to(m)
+        valid_coords = [pt for pt in route if isinstance(pt[0], (float, int)) and isinstance(pt[1], (float, int))]
+        if valid_coords:
+            folium.PolyLine(valid_coords, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
+            for j, pt in enumerate(valid_coords):
+                folium.CircleMarker(
+                    location=pt,
+                    radius=4,
+                    color=colors[i % len(colors)],
+                    fill=True,
+                    fill_opacity=0.8,
+                    popup=f"R{i+1} - Stop {j}"
+                ).add_to(m)
 
     st_folium(m, width=900, height=600)
 
-# === OPTIMIZE FLEET MIX ===
-st.subheader("🚐 Fleet Mix Optimizer")
-bus_capacity = 55
-van_capacity = 9
-bus_cost = 483  
-van_cost = 95 + 8.33 + 16.31  # Total 199.64
-driver_cost = 80
-
-if st.button("Optimize Fleet Mix"):
-    total_stops = len(df_stops)
-    best_mix = None
-    lowest_cost = float("inf")
-
-    for buses in range(0, 7):  # includes 0 buses
-        for vans in range(0, 11):  # includes 0 vans
-            capacity = buses * bus_capacity + vans * van_capacity
-            if capacity >= total_stops:
-                drivers = buses + vans
-                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
-                if cost < lowest_cost:
-                    lowest_cost = cost
-                    best_mix = {
-                        "buses": buses,
-                        "vans": vans,
-                        "drivers": drivers,
-                        "cost": cost,
-                        "capacity": capacity
-                    }
-
-    if best_mix:
-        st.session_state["fleet_mix"] = best_mix
-    else:
-        st.error("No valid fleet mix found.")
-
-# === DISPLAY FLEET MIX RESULTS ===
-if "fleet_mix" in st.session_state:
-    mix = st.session_state["fleet_mix"]
-    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
-    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
-    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
-    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
-# === SUMMARY ===
-st.subheader("📊 Executive Summary")
-total_stops = len(df_stops)
-buses_needed = int(np.ceil(total_stops / bus_capacity))
-baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
-
-if "fleet_mix" in st.session_state:
-    optimized = st.session_state["fleet_mix"]
-    savings = baseline_cost - optimized["cost"]
-    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
-    safe_pct = round(100 * safe_count / total_stops, 1)
-    st.markdown(f"""
-    ### ✅ FleetLab Optimization:
-    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
-    - **Drivers Needed**: {optimized['drivers']}  
-    - **Optimized Cost**: ${optimized['cost']:,.2f}  
-    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
-    - **Savings**: ${savings:,.2f}  
-    - **% of Safe Stops**: {safe_pct}%  
-    """)
-else:
-    st.info("ℹ️ Run the optimizer to compare costs and safety.")
-
-# === FINAL TABLE ===
+# === FINAL STOP TABLE ===
 st.subheader("📋 Final Stop Table")
 st.dataframe(df_stops, use_container_width=True)
