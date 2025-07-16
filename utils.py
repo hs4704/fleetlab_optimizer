@@ -1,11 +1,9 @@
-# utils.py
-
 import googlemaps
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import Point
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
@@ -96,26 +94,25 @@ def generate_weighted_stops(district_poly_latlon, school_point_latlon, n=50):
 
 # === SAFETY FACTOR FILLER ===
 def autofill_missing_fields(df):
-    safety_columns = [
-        "Visibility (V)", "Lighting (L)", "Traffic Risk (T)",
-        "Pedestrian Safety (P)", "Sidewalk Quality (S)",
-        "Construction Risk (C)", "U-Turn Required (U)"
-    ]
+    defaults = {
+        "Visibility (V)": 0.6,
+        "Lighting (L)": 0.5,
+        "Traffic Risk (T)": 0.5,
+        "Pedestrian Safety (P)": 0.5,
+        "Sidewalk Quality (S)": 0.5,
+        "Construction Risk (C)": 0.2,
+        "U-Turn Required (U)": 0
+    }
 
-    # Ensure numeric dtype and do NOT overwrite existing valid values
-    for col, default in [
-        ("Visibility (V)", 0.6), ("Lighting (L)", 0.5),
-        ("Traffic Risk (T)", 0.5), ("Pedestrian Safety (P)", 0.5),
-        ("Sidewalk Quality (S)", 0.5), ("Construction Risk (C)", 0.2),
-        ("U-Turn Required (U)", 0)
-    ]:
+    for col, default in defaults.items():
         if col not in df.columns:
             df[col] = default
         else:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(default)
 
     return df
-# == SES CALCULATOR ===
+
+# === SES CALCULATOR ===
 def calculate_ses(row):
     def to_float(val, default=0.5):
         try:
@@ -124,8 +121,13 @@ def calculate_ses(row):
             return default
 
     weights = {
-        "V": 0.20, "L": 0.10, "T": 0.30,
-        "P": 0.15, "S": 0.10, "C": 0.10, "U": 0.05
+        "V": 0.20,  # Visibility
+        "L": 0.10,  # Lighting
+        "T": 0.30,  # Traffic Risk (inverted)
+        "P": 0.15,  # Pedestrian Safety
+        "S": 0.10,  # Sidewalk Quality
+        "C": 0.10,  # Construction Risk (inverted)
+        "U": 0.05   # U-Turn Required (inverted)
     }
 
     adjusted = {

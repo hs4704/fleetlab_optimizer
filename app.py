@@ -15,11 +15,9 @@ import osmnx as ox
 import networkx as nx
 from shapely.geometry import LineString, MultiLineString
 
-# === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
 st.title("🚌 FleetLab Routing & Cost Optimizer")
 
-# === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
@@ -50,23 +48,21 @@ if mode == "Upload CSV":
     uploaded = st.sidebar.file_uploader("Upload stop CSV", type="csv")
     if uploaded:
         df_uploaded = pd.read_csv(uploaded)
-        df_uploaded.columns = df_uploaded.columns.str.strip().str.lower()
-
-        if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
+        df_uploaded.columns = df_uploaded.columns.str.strip()
+        if "home address" in df_uploaded.columns.str.lower().tolist():
             df_stops = preprocess_excel_style_sheet(df_uploaded)
         else:
             df_stops = df_uploaded
     else:
         try:
             df_sample = pd.read_csv("sample_stops.csv")
-            df_sample.columns = df_sample.columns.str.strip().str.lower()
-
-            if "address" in df_sample.columns:
+            df_sample.columns = df_sample.columns.str.strip()
+            if "Address" in df_sample.columns:
                 df_stops = df_sample.copy()
                 st.success(f"✅ Loaded fallback: {len(df_stops)} stops from sample_stops.csv")
-                st.session_state["school_coords"] = (42.2808, -83.7430)  # Example: Ann Arbor
+                st.session_state["school_coords"] = (42.2808, -83.7430)  # Ann Arbor
             else:
-                st.error("❌ sample_stops.csv missing required address column.")
+                st.error("❌ sample_stops.csv missing 'Address' column.")
                 st.stop()
         except Exception as e:
             st.error(f"❌ Failed to load sample_stops.csv: {e}")
@@ -85,15 +81,14 @@ elif mode == "Simulate from School Name":
     else:
         st.stop()
 
-# === STEP 2: Geocode if lat/lon missing
+# === STEP 2: Geocode if missing
 if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
-    if "address" in df_stops.columns:
-        addresses = df_stops["address"].astype(str).fillna("").tolist()
-        lats, lons = geocode_addresses(addresses)
+    if "Address" in df_stops.columns:
+        lats, lons = geocode_addresses(df_stops["Address"].astype(str).tolist())
         df_stops["lat"] = lats
         df_stops["lon"] = lons
     else:
-        st.error("❌ No coordinates or address column available for geocoding.")
+        st.error("❌ No coordinates or address column available.")
         st.stop()
 
 # === STEP 3: Drop bad coordinates
@@ -104,20 +99,14 @@ df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))
 with st.spinner("🔍 Calculating SES and safety..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
-    # Standardize columns
-df_stops.columns = df_stops.columns.str.strip()
-
-# Check columns before displaying SES preview
-required_cols = ["Stop Name", "SES Score", "Visibility (V)", "Lighting (L)", "Traffic Risk (T)", "Construction Risk (C)"]
-missing_cols = [col for col in required_cols if col not in df_stops.columns]
-
-if not missing_cols:
-    st.write("🔎 Sample SES values:", df_stops[required_cols])
-else:
-    st.warning(f"⚠️ Missing columns in SES preview: {missing_cols}")
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
         lambda s: "Safe" if s >= 0.7 else "Acceptable" if s >= 0.5 else "Unsafe"
     )
+
+# === Optional SES preview
+if all(col in df_stops.columns for col in ["Stop Name", "SES Score"]):
+    st.write("🔎 Sample SES values:")
+    st.dataframe(df_stops[["Stop Name", "SES Score", "Safety Rating"]])
 
 # === SAFETY MAP ===
 st.subheader("📍 Stop Safety Map")
@@ -140,7 +129,6 @@ except Exception as e:
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
-
 if st.button("Generate Routes"):
     try:
         school_coords = st.session_state.get("school_coords")
@@ -156,13 +144,11 @@ if st.button("Generate Routes"):
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
-# === DISPLAY ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📍 Optimized Route Map")
     routes = st.session_state["routes"]
     G = st.session_state["G"]
     depot = st.session_state["school_coords"]
-
     m = folium.Map(location=depot, zoom_start=13)
 
     for rid, route_nodes in routes.items():
@@ -179,7 +165,6 @@ if "routes" in st.session_state and "G" in st.session_state:
         try:
             edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
             line = edge_gdf.unary_union
-
             if isinstance(line, LineString):
                 folium.PolyLine(list(line.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
             elif isinstance(line, MultiLineString):
@@ -187,14 +172,14 @@ if "routes" in st.session_state and "G" in st.session_state:
                     folium.PolyLine(list(segment.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
         except Exception as e:
             st.warning(f"Route {rid} drawing failed: {e}")
-
     st_folium(m, width=950, height=600)
-# === OPTIMIZE FLEET MIX ===
+
+# === FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
 van_capacity = 9
 bus_cost = 483  
-van_cost = 95 + 8.33 + 16.31 #Total 199.64
+van_cost = 199.64
 driver_cost = 80
 
 if st.button("Optimize Fleet Mix"):
@@ -213,56 +198,45 @@ if st.button("Optimize Fleet Mix"):
                     best_mix = (buses, vans, drivers)
 
     if best_mix:
-        st.session_state["fleet_mix"]={
-            "buses": best_mix[0],
-            "vans": best_mix[1],
-            "drivers": best_mix[2],
-            "cost": lowest_cost,
-            "capacity": best_mix[0] * bus_capacity + best_mix[1] * van_capacity
+        buses, vans, drivers = best_mix
+        st.session_state["fleet_mix"] = {
+            "buses": buses, "vans": vans,
+            "drivers": drivers, "cost": lowest_cost,
+            "capacity": buses * bus_capacity + vans * van_capacity
         }
     else:
-        st.error("No valid fleet mix found.")
-        
+        st.error("❌ No valid fleet mix found.")
+
 if "fleet_mix" in st.session_state:
-    mix= st.session_state["fleet_mix"]
-    st.success(f"✅ Optimal Fleet: {buses} Buses, {vans} Vans")
-    st.markdown(f"- **Drivers Needed:** {drivers}")
-    st.markdown(f"- **Estimated Daily Cost:** ${lowest_cost:,.2f}")
-    st.markdown(f"- **Total Capacity:** {buses * bus_capacity + vans * van_capacity}")
-# === EXECUTIVE SUMMARY ===
+    mix = st.session_state["fleet_mix"]
+    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
+    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
+    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
+    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
+
+# === SUMMARY ===
 st.subheader("📊 Executive Summary")
-
-# Compute baseline (all buses) vs optimized fleet
 total_stops = len(df_stops)
+buses_needed = int(np.ceil(total_stops / bus_capacity))
+baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
 
-# Baseline: all buses
-buses_needed_baseline = int(np.ceil(total_stops / bus_capacity))
-baseline_cost = (buses_needed_baseline * bus_cost) + (buses_needed_baseline * driver_cost)
-
-# Optimized mix (reusing variables if optimization ran)
-if "best_mix" in locals() and best_mix:
-    buses_opt, vans_opt, drivers_opt = best_mix
-    optimized_cost = (buses_opt * bus_cost) + (vans_opt * van_cost) + (drivers_opt * driver_cost)
-
-    # Safety summary
-    total_safe = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
-    safe_pct = round(100 * total_safe / total_stops, 1)
-
-    # Cost savings
-    savings = baseline_cost - optimized_cost
-    savings_pct = round(100 * (savings / baseline_cost), 1)
-
+if "fleet_mix" in st.session_state:
+    optimized = st.session_state["fleet_mix"]
+    savings = baseline_cost - optimized["cost"]
+    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
+    safe_pct = round(100 * safe_count / total_stops, 1)
     st.markdown(f"""
-    ### ✅ FleetLab Optimization Results:
-    - **Recommended Fleet**: {buses_opt} Buses, {vans_opt} Vans  
-    - **Drivers Needed**: {drivers_opt}  
-    - **Daily Cost with FleetLab**: ${optimized_cost:,.2f}  
-    - **Baseline (All Buses) Cost**: ${baseline_cost:,.2f}  
-    - **Daily Savings**: ${savings:,.2f} ({savings_pct}% lower)  
+    ### ✅ FleetLab Optimization:
+    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
+    - **Drivers Needed**: {optimized['drivers']}  
+    - **Optimized Cost**: ${optimized['cost']:,.2f}  
+    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
+    - **Savings**: ${savings:,.2f}  
     - **% of Safe Stops**: {safe_pct}%  
     """)
 else:
-    st.info("ℹ️ Run the optimizer to see savings and safety impact.")
-# === STOP TABLE ===
-st.subheader("📋 Stop Table")
-st.dataframe(df_stops)
+    st.info("ℹ️ Run the optimizer to compare costs and safety.")
+
+# === FINAL TABLE ===
+st.subheader("📋 Final Stop Table")
+st.dataframe(df_stops, use_container_width=True)
