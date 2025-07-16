@@ -174,12 +174,12 @@ if "routes" in st.session_state and "G" in st.session_state:
             st.warning(f"Route {rid} drawing failed: {e}")
     st_folium(m, width=950, height=600)
 
-# === FLEET MIX ===
+# === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
 van_capacity = 9
 bus_cost = 483  
-van_cost = 199.64
+van_cost = 95 + 8.33 + 16.31  # Total 199.64
 driver_cost = 80
 
 if st.button("Optimize Fleet Mix"):
@@ -187,33 +187,34 @@ if st.button("Optimize Fleet Mix"):
     best_mix = None
     lowest_cost = float("inf")
 
-    for buses in range(0, 6):
-        for vans in range(1, 10):
+    for buses in range(0, 7):  # includes 0 buses
+        for vans in range(0, 11):  # includes 0 vans
             capacity = buses * bus_capacity + vans * van_capacity
             if capacity >= total_stops:
                 drivers = buses + vans
                 cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
                 if cost < lowest_cost:
                     lowest_cost = cost
-                    best_mix = (buses, vans, drivers)
+                    best_mix = {
+                        "buses": buses,
+                        "vans": vans,
+                        "drivers": drivers,
+                        "cost": cost,
+                        "capacity": capacity
+                    }
 
     if best_mix:
-        buses, vans, drivers = best_mix
-        st.session_state["fleet_mix"] = {
-            "buses": buses, "vans": vans,
-            "drivers": drivers, "cost": lowest_cost,
-            "capacity": buses * bus_capacity + vans * van_capacity
-        }
+        st.session_state["fleet_mix"] = best_mix
     else:
-        st.error("❌ No valid fleet mix found.")
+        st.error("No valid fleet mix found.")
 
+# === DISPLAY FLEET MIX RESULTS ===
 if "fleet_mix" in st.session_state:
     mix = st.session_state["fleet_mix"]
     st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
-
 # === SUMMARY ===
 st.subheader("📊 Executive Summary")
 total_stops = len(df_stops)
