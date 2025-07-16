@@ -11,7 +11,7 @@ from preprocess import preprocess_excel_style_sheet
 import numpy as np
 from sklearn.cluster import KMeans
 import osmnx as ox
-school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
+
 
 def simple_route_solver(school_coords, stop_coords, n_routes=3):
     from sklearn.cluster import KMeans
@@ -171,6 +171,7 @@ if "routes" in st.session_state and "G" in st.session_state:
         st.warning("No clustered stop data available. Please run routing first.")
     else:
         depot = st.session_state["school_coords"]
+        school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
         m = folium.Map(location=depot, zoom_start=13)
         colors = ["red", "blue", "green", "purple", "orange", "darkred"]
 
