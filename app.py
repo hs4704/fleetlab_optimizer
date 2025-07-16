@@ -78,7 +78,18 @@ if mode == "Upload CSV":
         else:
             df_stops = df_uploaded
     else:
-        st.stop()
+        try:
+            df_stops = pd.read_csv("sample_stops.csv")
+            df_stops = df_stops.dropna(subset=["lat", "lon"])
+            df_stops = df_stops[df_stops["lat"].apply(lambda x: isinstance(x, (float, int)))]
+            st.session_state["df_stops"] = df_stops
+            school_lat = df_stops["lat"].mean()
+            school_lon = df_stops["lon"].mean()
+            st.session_state["school_coords"] = (school_lat, school_lon)
+            st.success(f"✅ Loaded {len(df_stops)} fallback stops from sample_stops.csv")
+        except Exception as e:
+            st.error(f"❌ Failed to load sample_stops.csv: {e}")
+            st.stop()
 
 elif mode == "Simulate from School Name":
     school = st.sidebar.text_input("Enter school name", "")
@@ -159,7 +170,6 @@ if "routes" in st.session_state and "G" in st.session_state:
     G = st.session_state["G"]
     depot = st.session_state["school_coords"]
 
-    # DEBUGGING OUTPUT
     st.write("✅ Number of routes:", len(routes))
     for rid, path in routes.items():
         st.write(f"Route {rid} → nodes: {path[:5]}...")
@@ -188,7 +198,6 @@ if "routes" in st.session_state and "G" in st.session_state:
                     folium.PolyLine(list(segment.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
             else:
                 st.warning(f"Route {rid} geometry type {type(line)} is not supported.")
-
         except Exception as e:
             st.warning(f"Route {rid} drawing failed: {e}")
 
