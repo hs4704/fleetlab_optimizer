@@ -235,7 +235,6 @@ if st.button("Generate Routes"):
 
 # === DISPLAY ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
-    from osmnx import plot_route_folium
 
     depot = st.session_state["school_coords"]
     G = st.session_state["G"]
