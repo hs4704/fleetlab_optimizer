@@ -76,23 +76,35 @@ def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
 def export_routes_geojson(routes, G):
     features = []
     for rid, path in routes.items():
+        full_path = []
         for u, v in zip(path[:-1], path[1:]):
             try:
                 segment = nx.shortest_path(G, u, v, weight="length")
-                line = ox.utils_graph.graph_to_gdfs(G.subgraph(segment), nodes=False).geometry.unary_union
-                features.append({
-                    "type": "Feature",
-                    "geometry": line.__geo_interface__,
-                    "properties": {"route": int(rid)}
-                })
+                full_path.extend(segment[:-1])
             except Exception as e:
                 print(f"Route {rid} segment {u} → {v} failed: {e}")
                 continue
+        full_path.append(path[-1])
+
+        try:
+            edge_gdf = ox.utils_graph.graph_to_gdfs(G.subgraph(full_path), nodes=False)
+            geometry = edge_gdf.geometry.unary_union  # May be LineString or MultiLineString
+            if geometry.is_empty:
+                continue
+
+            feature = {
+                "type": "Feature",
+                "geometry": geometry.__geo_interface__,
+                "properties": {"route": int(rid)}
+            }
+            features.append(feature)
+        except Exception as e:
+            print(f"Route {rid} export failed: {e}")
+            continue
 
     print(f"✅ Exported {len(features)} route features")
     return {
         "type": "FeatureCollection",
         "features": features
     }
-
 __all__ = ["cluster_and_route_stops", "export_routes_geojson"]
