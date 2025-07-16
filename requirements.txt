@@ -8,6 +8,6 @@ geopandas
 shapely
 pyproj
 osmnx
-ortools 
-geopy 
+ortools
+geopy
 scikit-learn

@@ -13,14 +13,14 @@ from shapely.ops import transform
 from utils import geocode_address, get_district_geometry, generate_weighted_stops
 
 # === CONFIG ===
-DEFAULT_UTM = 26917
+DEFAULT_UTM = 26917  # Assumes Michigan, adjust if expanding elsewhere
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-
-# === STEP 1: Main simulation ===
+# === STEP 1: Simulate district & generate stops ===
 def simulate_district(school_name, n_stops=50):
     lat, lon = geocode_address(school_name)
     school_point = Point(lon, lat)
+
     district_polygon, district_name, _ = get_district_geometry(lat, lon)
     stops_df = generate_weighted_stops(district_polygon, (lat, lon), n=n_stops)
 
@@ -39,8 +39,7 @@ def simulate_district(school_name, n_stops=50):
         }
     }
 
-
-# === STEP 2: Reverse geocoding helper ===
+# === STEP 2: Reverse geocoding ===
 def reverse_geocode(lat, lon):
     try:
         result = gmaps.reverse_geocode((lat, lon))
@@ -50,23 +49,17 @@ def reverse_geocode(lat, lon):
         print(f"[Reverse Geocode ERROR] {e}")
     return "Unknown Address"
 
-
-# === STEP 3: Estimate traffic risk based on OSM roads ===
+# === STEP 3: Estimate traffic risk based on nearby roads ===
 def estimate_traffic_risk(lat, lon):
     try:
-        print(f"[DEBUG] Estimating traffic risk at ({lat}, {lon})")
         point = Point(lon, lat)
         buffer_dist = 75
-
         roads = ox.features_from_point((lat, lon), tags={"highway": True}, dist=buffer_dist)
-        print(f"[DEBUG] Found {len(roads)} road segments")
 
         if roads.empty:
             return 0.3
 
         road_types = roads["highway"].dropna().tolist()
-        print(f"[DEBUG] Raw road types: {road_types}")
-
         all_types = []
         for r in road_types:
             all_types.extend(r if isinstance(r, list) else [r])
@@ -91,32 +84,25 @@ def estimate_traffic_risk(lat, lon):
         print(f"[Traffic Risk ERROR] {e}")
         return 0.5
 
-
-# === STEP 4: Detect if U-turn is needed ===
+# === STEP 4: Detect U-turn from Google Maps directions ===
 def detect_uturn_needed(origin_lat, origin_lon, dest_lat, dest_lon):
-    print(f"[U-Turn DEBUG] Checking U-turn from stop ({origin_lat}, {origin_lon}) to school ({dest_lat}, {dest_lon})")
-    directions = gmaps.directions((origin_lat, origin_lon), (dest_lat, dest_lon), mode="driving")
+    try:
+        directions = gmaps.directions((origin_lat, origin_lon), (dest_lat, dest_lon), mode="driving")
+        if not directions:
+            return False
 
-    if not directions:
-        print("[U-Turn DEBUG] No directions found")
+        steps = directions[0]['legs'][0]['steps']
+        for step in steps:
+            maneuver = step.get('maneuver', '').lower()
+            instruction = step.get('html_instructions', '').lower()
+            if "u-turn" in instruction or "uturn" in maneuver:
+                return True
+        return False
+    except Exception as e:
+        print(f"[U-Turn ERROR] {e}")
         return False
 
-    steps = directions[0]['legs'][0]['steps']
-    for step in steps:
-        maneuver = step.get('maneuver', '').lower()
-        instruction = step.get('html_instructions', '').lower()
-        print("[U-Turn DEBUG] Instruction:", instruction)
-        print("[U-Turn DEBUG] Maneuver:", maneuver)
-
-        if "u-turn" in instruction or "uturn" in maneuver:
-            print("[U-Turn DETECTED]")
-            return True
-
-    print("[U-Turn DEBUG] No U-turn detected")
-    return False
-
-
-# === STEP 5: Final generation wrapper ===
+# === STEP 5: Final stop generation wrapper ===
 def generate_stops_for_school(school_name, n=50):
     sim = simulate_district(school_name, n_stops=n)
     project_back = pyproj.Transformer.from_crs(sim["utm_crs"], "EPSG:4326", always_xy=True).transform

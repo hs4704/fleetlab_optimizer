@@ -1,10 +1,11 @@
-#utils.py
+# utils.py
+
 import googlemaps
 import geopandas as gpd
 import pandas as pd
 import numpy as np
 import pyproj
-from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import Point
 from shapely.ops import transform
 import osmnx as ox
 import streamlit as st
@@ -29,7 +30,9 @@ def geocode_school_address(address):
 def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     districts = gpd.read_file(district_geojson).to_crs(epsg=4326)
     districts = districts[districts.geometry.type.isin(["Polygon", "MultiPolygon"])]
-    st.warning(f"📂 GeoJSON geometry types: {districts.geometry.type.unique()}")
+
+    # Debug info (optional)
+    # st.warning(f"📂 GeoJSON geometry types: {districts.geometry.type.unique()}")
 
     point = Point(lon, lat)
     point_gdf = gpd.GeoDataFrame([{"geometry": point}], crs="EPSG:4326")
@@ -41,7 +44,8 @@ def get_district_geometry(lat, lon, district_geojson="School_District.geojson"):
     row = joined.iloc[0]
     geometry = row.geometry
 
-    st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
+    # Debug info (optional)
+    # st.warning(f"📐 Matched geometry type: {geometry.geom_type}")
     st.info(f"🎯 Matched district: {row.get('Name', 'Unknown')} (DCode: {row.get('DCode', '0000')})")
     return geometry, row.get("Name", "Unknown"), row.get("DCode", "0000")
 
@@ -110,27 +114,26 @@ def autofill_missing_fields(df):
         # === Construction Risk using OSM 'highway=construction' ===
         if 'Construction Risk (C)' not in df.columns or pd.isna(row.get('Construction Risk (C)')):
             try:
-                construction = ox.features_from_point(
+                construction = ox.geometries_from_point(
                     (lat, lon),
                     tags={"highway": "construction"},
                     dist=100
                 )
                 df.at[idx, 'Construction Risk (C)'] = 0.9 if not construction.empty else 0.2
             except Exception as e:
-                # Suppress spammy "No matching features" logs
                 if "No matching features" not in str(e):
                     print(f"[Construction Risk ERROR] {e}")
                 df.at[idx, 'Construction Risk (C)'] = 0.2
 
         # === Visibility, Lighting, Pedestrian Safety, Sidewalk Quality fallbacks ===
-        if 'Visibility (V)' not in df.columns or pd.isna(row.get('Visibility (V)')):
-            df.at[idx, 'Visibility (V)'] = 0.6
-        if 'Lighting (L)' not in df.columns or pd.isna(row.get('Lighting (L)')):
-            df.at[idx, 'Lighting (L)'] = 0.5
-        if 'Pedestrian Safety (P)' not in df.columns or pd.isna(row.get('Pedestrian Safety (P)')):
-            df.at[idx, 'Pedestrian Safety (P)'] = 0.5
-        if 'Sidewalk Quality (S)' not in df.columns or pd.isna(row.get('Sidewalk Quality (S)')):
-            df.at[idx, 'Sidewalk Quality (S)'] = 0.5
+        for col, default in [
+            ("Visibility (V)", 0.6),
+            ("Lighting (L)", 0.5),
+            ("Pedestrian Safety (P)", 0.5),
+            ("Sidewalk Quality (S)", 0.5),
+        ]:
+            if col not in df.columns or pd.isna(row.get(col)):
+                df.at[idx, col] = default
 
     return df
 
@@ -138,7 +141,7 @@ def autofill_missing_fields(df):
 def calculate_ses(row):
     weights = {
         "V": 0.20, "L": 0.10, "T": 0.30,
-        "P": 0.15,  "S": 0.10,  "C": 0.10, "U": 0.05
+        "P": 0.15, "S": 0.10, "C": 0.10, "U": 0.05
     }
     adjusted = {
         "V": row.get("Visibility (V)", 0.5),
@@ -150,4 +153,3 @@ def calculate_ses(row):
         "U": 1 - row.get("U-Turn Required (U)", 0)
     }
     return sum(weights[k] * adjusted[k] for k in weights)
-

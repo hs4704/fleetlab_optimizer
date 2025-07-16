@@ -1,7 +1,4 @@
-# preprocess.py
-
 import pandas as pd
-import difflib
 import streamlit as st
 
 def load_input_data(csv_file):
@@ -37,11 +34,9 @@ def preprocess_excel_style_sheet(df):
     # Match normalized column names to expected fields
     for key, aliases in column_aliases.items():
         for alias in aliases:
-            for col in df.columns:
-                if alias in col:
-                    matched[key] = col
-                    break
-            if key in matched:
+            match = next((col for col in df.columns if alias in col), None)
+            if match:
+                matched[key] = match
                 break
 
     st.info(f"🔍 Matched columns: {matched}")
@@ -60,15 +55,12 @@ def preprocess_excel_style_sheet(df):
         + df[matched["city"]].fillna("").astype(str)
         + ", "
         + df[matched["zip"]].fillna("").astype(str)
-    )
+    ).str.replace(r"\s+", " ", regex=True).str.strip()
 
     # Create final School column
     df["School"] = df[matched["school"]].astype(str).str.strip()
 
-    # Optionally clean extra whitespace from Address
-    df["Address"] = df["Address"].str.replace(r"\s+", " ", regex=True).str.strip()
     st.write("✅ Columns after processing:", df.columns.tolist())
     st.write("🧪 Sample 'School' values:", df['School'].dropna().unique().tolist())
 
     return df
-
