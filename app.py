@@ -15,6 +15,7 @@ import networkx as nx
 from shapely.geometry import LineString, MultiLineString
 import matplotlib.pyplot as plt
 from osmnx import graph_to_gdfs
+import geopandas as gpd
 
 # Ensure session keys exist
 if "routes" not in st.session_state:
