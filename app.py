@@ -148,15 +148,15 @@ if st.button("Generate Routes"):
         st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES ===
-if st.session_state["routes"] and st.session_state["G"]:
+if st.session_state.get("routes") and st.session_state.get("G"):
     st.subheader("📍 Optimized OSM-Based Route Map")
+
     routes = st.session_state["routes"]
     G = st.session_state["G"]
-    clustered_df = st.session_state.get("clustered_df", None)
+    clustered_df = st.session_state.get("clustered_df")
+    depot = st.session_state.get("school_coords")
 
     try:
-        depot = st.session_state["school_coords"]
-        school_node = ox.distance.nearest_nodes(G, depot[1], depot[0])
         m = folium.Map(location=depot, zoom_start=13)
         colors = ["red", "blue", "green", "purple", "orange", "darkred"]
 
@@ -167,13 +167,13 @@ if st.session_state["routes"] and st.session_state["G"]:
                     segment = nx.shortest_path(G, u, v, weight='length')
                     full_path += segment[:-1]
                 except Exception as e:
-                    st.warning(f"Route {cid} segment failed: {e}")
+                    st.warning(f"Route {cid} segment {u} → {v} failed: {e}")
                     continue
             full_path.append(route_nodes[-1])
 
             try:
                 edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
-                line = edge_gdf.geometry.unary_union
+                line = edge_gdf.geometry.union_all()
 
                 if isinstance(line, LineString):
                     folium.PolyLine(list(line.coords), color=colors[cid % len(colors)], weight=5).add_to(m)
@@ -183,9 +183,13 @@ if st.session_state["routes"] and st.session_state["G"]:
             except Exception as e:
                 st.warning(f"Route {cid} plotting failed: {e}")
 
+        # Optionally mark school
+        folium.Marker(location=depot, icon=folium.Icon(color="red", icon="star"), tooltip="School Depot").add_to(m)
+
         st_folium(m, width=950, height=600)
+
     except Exception as e:
-        st.error(f"❌ Failed to display route map: {e}")
+        st.error(f"❌ Failed to render route map: {e}")
 # === OPTIMIZE FLEET MIX ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
