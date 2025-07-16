@@ -245,15 +245,15 @@ if st.button("Generate Routes"):
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
-# === DISPLAY ROUTES (Static Road Map with Arrows) ==
+# === DISPLAY ROUTES (Static Road Map with Arrows) ===
 
-if "routes" in st.session_state and "G" in st.session_state:
+routes = st.session_state.get("routes")
+G = st.session_state.get("G")
+clustered_df = st.session_state.get("clustered_df")
+depot = st.session_state.get("school_coords")
+
+if routes and G:
     st.subheader("🗺️ Optimized Route Visualization (Static)")
-
-    routes = st.session_state["routes"]
-    G = st.session_state["G"]
-    clustered_df = st.session_state.get("clustered_df")
-    depot = st.session_state.get("school_coords")
 
     cmap = plt.colormaps.get_cmap("tab10")
     colors = [cmap(i) for i in range(len(routes))]
@@ -316,6 +316,8 @@ if "routes" in st.session_state and "G" in st.session_state:
 
     ax.legend(loc='lower right')
     st.pyplot(fig)
+else:
+    st.warning("⚠️ No routes to display yet. Click 'Generate Routes' to begin.")
 # === DOWNLOAD ROUTES ===
 
 if "routes" in st.session_state and "G" in st.session_state:
