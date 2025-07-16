@@ -235,35 +235,50 @@ if st.button("Generate Routes"):
 
 # === DISPLAY ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
+    st.subheader("📍 Optimized Route Map")
 
     depot = st.session_state["school_coords"]
     G = st.session_state["G"]
-    clustered_df = st.session_state["clustered_df"]
     routes = st.session_state["routes"]
 
+    import folium
     m = folium.Map(location=depot, zoom_start=12)
-    colors = ["red", "blue", "green", "purple", "orange", "darkred", "cadetblue", "gray"]
 
-    for i, (cid, node_ids) in enumerate(routes.items()):
-        color = colors[i % len(colors)]
-        path = []
+    colors = [
+        "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
+        "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
+    ]
 
-        for u, v in zip(node_ids[:-1], node_ids[1:]):
+    for rid, route_nodes in routes.items():
+        full_path = []
+        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
             try:
-                path += nx.shortest_path(G, u, v, weight="length")[:-1]
+                path = nx.shortest_path(G, u, v, weight='length')
+                full_path += path[:-1]
             except:
                 continue
-        path.append(node_ids[-1])
+        if route_nodes:
+            full_path.append(route_nodes[-1])
 
-        folium.PolyLine(
-            locations=[(G.nodes[n]['y'], G.nodes[n]['x']) for n in path],
-            color=color,
-            weight=5,
-            opacity=0.8,
-            tooltip=f"Van {cid}"
-        ).add_to(m)
+        # Convert OSM node IDs to lat/lon coordinates
+        route_coords = [(G.nodes[n]['y'], G.nodes[n]['x']) for n in full_path if n in G.nodes]
 
-    st.subheader("📍 Optimized Route Map")
+        if not route_coords:
+            continue  # skip if empty
+
+        color = colors[rid % len(colors)]
+        folium.PolyLine(route_coords, color=color, weight=6, opacity=0.85, tooltip=f"Route {rid}").add_to(m)
+
+        for i, (lat, lon) in enumerate(route_coords):
+            folium.CircleMarker(
+                location=(lat, lon),
+                radius=3,
+                color=color,
+                fill=True,
+                fill_opacity=0.8,
+                popup=f"Route {rid} Stop {i}"
+            ).add_to(m)
+
     st_folium(m, width=950)
 
     geojson_data = export_routes_geojson(routes, G)
