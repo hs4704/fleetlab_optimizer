@@ -144,34 +144,36 @@ if st.button("Generate Routes"):
     except Exception as e:
         st.error(f"❌ Routing error: {e}")
 
-if "routes" in st.session_state and "G" in st.session_state:
-    st.subheader("📍 Optimized Route Map")
+# === DISPLAY ROUTES ===
+if "routes" in st.session_state and "all_locations" in st.session_state:
+    st.subheader("📍 Optimized Route Map (Simplified)")
     routes = st.session_state["routes"]
-    G = st.session_state["G"]
-    depot = st.session_state["school_coords"]
-    m = folium.Map(location=depot, zoom_start=13)
+    all_locations = st.session_state["all_locations"]
 
-    for rid, route_nodes in routes.items():
-        full_path = []
-        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
-            try:
-                segment = nx.shortest_path(G, u, v, weight='length')
-                full_path += segment[:-1]
-            except Exception as e:
-                st.warning(f"Route {rid} segment {u} → {v} failed: {e}")
-        if route_nodes:
-            full_path.append(route_nodes[-1])
+    # Color palette for route lines
+    color_palette = [
+        "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
+        "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
+    ]
 
-        try:
-            edge_gdf = ox.graph_to_gdfs(G.subgraph(full_path), nodes=False)
-            line = edge_gdf.unary_union
-            if isinstance(line, LineString):
-                folium.PolyLine(list(line.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
-            elif isinstance(line, MultiLineString):
-                for segment in line.geoms:
-                    folium.PolyLine(list(segment.coords), color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
-        except Exception as e:
-            st.warning(f"Route {rid} drawing failed: {e}")
+    m = folium.Map(location=all_locations[0], zoom_start=12)
+
+    for i, route in enumerate(routes):
+        color = color_palette[i % len(color_palette)]
+        points = [all_locations[idx] for idx in route]
+
+        folium.PolyLine(points, color=color, weight=5, opacity=0.85, tooltip=f"Route {i+1}").add_to(m)
+
+        for j, pt in enumerate(points):
+            folium.CircleMarker(
+                location=pt,
+                radius=5,
+                color=color,
+                fill=True,
+                fill_opacity=0.9,
+                popup=f"Route {i+1} - {'Depot' if j == 0 else f'Stop {j}'}"
+            ).add_to(m)
+
     st_folium(m, width=950, height=600)
 
 # === OPTIMIZE FLEET MIX ===
