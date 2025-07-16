@@ -71,10 +71,15 @@ if mode == "Upload CSV":
             selected_school = st.sidebar.selectbox("Select school to route from:", school_names)
             df_stops = df_uploaded[df_uploaded["School"] == selected_school].copy()
 
-            if "Address" in df_stops.columns:
+            if "lat" in df_stops.columns and "lon" in df_stops.columns:
                 st.session_state["school_coords"] = (df_stops["lat"].mean(), df_stops["lon"].mean())
+            elif "Address" in df_stops.columns:
+                lats, lons = geocode_addresses(df_stops["Address"].astype(str).tolist())
+                df_stops["lat"] = lats
+                df_stops["lon"] = lons
+                st.session_state["school_coords"] = (np.mean(lats), np.mean(lons))
             else:
-                st.error("❌ No Address column found in school-specific data.")
+                st.error("❌ No coordinates or address column found for selected school.")
                 st.stop()
         else:
             df_stops = df_uploaded.copy()
