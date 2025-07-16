@@ -161,7 +161,7 @@ if "routes" in st.session_state:
 
     colors = ["red", "blue", "green", "purple", "orange"]
     for i, route in enumerate(routes):
-        valid_coords = [pt for pt in route if isinstance(pt[0], (float, int)) and isinstance(pt[1], (float, int))]
+        valid_coords = [pt for pt in route if isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(x, (float, int)) for x in pt)]
         if valid_coords:
             folium.PolyLine(valid_coords, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
             for j, pt in enumerate(valid_coords):
