@@ -7,12 +7,13 @@ from folium.plugins import MarkerCluster
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 import time
-import numpy as np
-
 from simulator import generate_stops_for_school
 from utils import autofill_missing_fields, calculate_ses
 from preprocess import preprocess_excel_style_sheet
 from router import cluster_and_route_stops, export_routes_geojson
+import numpy as np
+import osmnx as ox
+import networkx as nx
 
 # === CONFIG ===
 st.set_page_config(page_title="FleetLab Optimizer Demo", layout="wide")
@@ -21,7 +22,7 @@ st.title("🚌 FleetLab Routing & Cost Optimizer")
 # === GOOGLE MAPS CLIENT ===
 gmaps = googlemaps.Client(key=st.secrets["google"]["maps_api_key"])
 
-# === GEOCODER FUNCTION ===
+# === GEOCODER FUNCTION (cached) ===
 @st.cache_data(show_spinner="📍 Geocoding addresses...")
 def geocode_addresses(addresses):
     latitudes, longitudes = [], []
@@ -56,59 +57,39 @@ if mode == "Upload CSV":
 
         if "home address" in df_uploaded.columns and "city" in df_uploaded.columns:
             df_stops = preprocess_excel_style_sheet(df_uploaded)
+
             if "school" not in df_stops.columns:
                 st.error("❌ 'School' column not found after processing.")
                 st.stop()
 
+            df_stops["school"] = df_stops["school"].astype(str).str.strip()
             schools = sorted(df_stops["school"].dropna().unique())
-            selected_school = st.sidebar.selectbox("Select a school to process", schools)
+            selected_school = st.sidebar.selectbox("Select a school", schools)
             df_stops = df_stops[df_stops["school"] == selected_school].copy()
 
             try:
-                geocode = gmaps.geocode(selected_school)
-                if geocode:
-                    loc = geocode[0]["geometry"]["location"]
+                school_geocode = gmaps.geocode(selected_school)
+                if school_geocode:
+                    loc = school_geocode[0]["geometry"]["location"]
                     st.session_state["school_coords"] = (loc["lat"], loc["lng"])
             except:
-                st.warning("⚠️ Could not geocode selected school.")
-
-            st.success(f"✅ Now processing {len(df_stops)} stops for: {selected_school}")
-
+                st.warning("⚠️ Could not geocode school.")
         else:
             df_stops = df_uploaded
-            st.success("✅ Uploaded preformatted stop CSV.")
-
     else:
-        try:
-            df_stops = pd.read_csv("sample_stops.csv")
-            st.warning("📄 Using sample_stops.csv")
-        except:
-            st.error("❌ No file available.")
-            st.stop()
+        st.stop()
 
 elif mode == "Simulate from School Name":
     school = st.sidebar.text_input("Enter school name", "")
     n_stops = st.sidebar.slider("Number of stops to simulate", 20, 100, 50)
     simulate_clicked = st.sidebar.button("Simulate Stops")
-
     if simulate_clicked:
-        if not school.strip():
-            st.error("❌ Please enter a school name.")
-            st.stop()
-        try:
-            df_stops = generate_stops_for_school(school, n=n_stops)
-            st.success(f"✅ Simulated {len(df_stops)} stops for: {school}")
-            st.session_state["df_stops"] = df_stops
-            school_lat = df_stops["lat"].mean()
-            school_lon = df_stops["lon"].mean()
-            st.session_state["school_coords"] = (school_lat, school_lon)
-        except Exception as e:
-            st.error(f"❌ Simulation failed: {e}")
-            st.stop()
+        df_stops = generate_stops_for_school(school, n=n_stops)
+        st.session_state["df_stops"] = df_stops
+        st.session_state["school_coords"] = (df_stops["lat"].mean(), df_stops["lon"].mean())
     elif "df_stops" in st.session_state:
         df_stops = st.session_state["df_stops"]
     else:
-        st.info("📍 Enter a school name and click 'Simulate Stops'")
         st.stop()
 
 # === STEP 2: Geocode if missing lat/lon ===
@@ -116,16 +97,17 @@ if "lat" not in df_stops.columns or "lon" not in df_stops.columns:
     if "Address" in df_stops.columns:
         addresses = df_stops["Address"].fillna("").astype(str).tolist()
         lats, lons = geocode_addresses(addresses)
-        df_stops["lat"] = pd.Series(lats, index=df_stops.index)
-        df_stops["lon"] = pd.Series(lons, index=df_stops.index)
+        df_stops["lat"] = lats
+        df_stops["lon"] = lons
     else:
-        st.error("❌ No lat/lon or Address available for geocoding.")
+        st.error("No coordinates or Address found.")
         st.stop()
 
+# === STEP 3: Drop invalid coordinates
 df_stops = df_stops.dropna(subset=["lat", "lon"])
 
-# === STEP 3: Safety Scoring ===
-with st.spinner("🔍 Estimating safety scores..."):
+# === STEP 4: Safety scoring
+with st.spinner("Scoring stops..."):
     df_stops = autofill_missing_fields(df_stops)
     df_stops["SES Score"] = df_stops.apply(calculate_ses, axis=1)
     df_stops["Safety Rating"] = df_stops["SES Score"].apply(
@@ -145,161 +127,67 @@ try:
             color=color,
             fill=True,
             fill_opacity=0.7,
-            popup=f"{row.get('Stop Name', 'Stop')}: {row['Safety Rating']}"
+            popup=row.get("Stop Name", "Stop")
         ).add_to(cluster)
     st_folium(m, width=900)
 except Exception as e:
-    st.error(f"❌ Map rendering failed: {e}")
-
-# === FLEET MIX OPTIMIZATION ===
-st.subheader("🚐 Fleet Mix Optimizer")
-bus_capacity = 55
-van_capacity = 9
-bus_cost = 483
-van_cost = 95 + 8.33 + 16.31  # total: 199.64
-driver_cost = 80
-
-if st.button("Optimize Fleet Mix"):
-    total_stops = len(df_stops)
-    best_mix = None
-    lowest_cost = float("inf")
-
-    for buses in range(0, 6):
-        for vans in range(1, 10):
-            capacity = buses * bus_capacity + vans * van_capacity
-            if capacity >= total_stops:
-                drivers = buses + vans
-                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
-                if cost < lowest_cost:
-                    lowest_cost = cost
-                    best_mix = (buses, vans, drivers)
-
-    if best_mix:
-        st.session_state["fleet_mix"] = {
-            "buses": best_mix[0],
-            "vans": best_mix[1],
-            "drivers": best_mix[2],
-            "cost": lowest_cost,
-            "capacity": best_mix[0] * bus_capacity + best_mix[1] * van_capacity
-        }
-    else:
-        st.error("No valid fleet mix found.")
-
-if "fleet_mix" in st.session_state:
-    mix = st.session_state["fleet_mix"]
-    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
-    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
-    st.markdown(f"- **Estimated Daily Cost:** `${mix['cost']:,.2f}`")
-    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
-
-# === EXECUTIVE SUMMARY ===
-st.subheader("📊 Executive Summary")
-total_stops = len(df_stops)
-buses_needed_baseline = int(np.ceil(total_stops / bus_capacity))
-baseline_cost = (buses_needed_baseline * bus_cost) + (buses_needed_baseline * driver_cost)
-
-if "fleet_mix" in st.session_state:
-    mix = st.session_state["fleet_mix"]
-    optimized_cost = mix["cost"]
-    savings = baseline_cost - optimized_cost
-    savings_pct = round(100 * (savings / baseline_cost), 1)
-    safe_pct = round(100 * df_stops[df_stops["Safety Rating"] == "Safe"].shape[0] / total_stops, 1)
-
-    st.markdown(f"""
-    ### ✅ FleetLab Optimization Results:
-    - **Recommended Fleet**: {mix['buses']} Buses, {mix['vans']} Vans  
-    - **Drivers Needed**: {mix['drivers']}  
-    - **Daily Cost with FleetLab**: `${optimized_cost:,.2f}`  
-    - **Baseline (All Buses) Cost**: `${baseline_cost:,.2f}`  
-    - **Daily Savings**: `${savings:,.2f}` ({savings_pct}% lower)  
-    - **% of Safe Stops**: {safe_pct}%  
-    """)
+    st.error(f"Map error: {e}")
 
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 
 if st.button("Generate Routes"):
-    if "school_coords" not in st.session_state:
-        st.warning("⚠️ School location not available. Cannot generate routes.")
-    else:
-        depot = st.session_state["school_coords"]
-        with st.spinner("🚐 Clustering and routing stops..."):
-            try:
-                routes, G, clustered_df = cluster_and_route_stops(df_stops.copy(), school_coords=depot, n_clusters=4)
+    try:
+        school_coords = st.session_state.get("school_coords")
+        if not school_coords:
+            st.error("No school location found.")
+        else:
+            with st.spinner("Generating road-based routes..."):
+                routes, G, clustered_stops = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=4)
                 st.session_state["routes"] = routes
                 st.session_state["G"] = G
-                st.session_state["clustered_df"] = clustered_df
-                st.success("✅ Routes generated successfully!")
-            except Exception as e:
-                st.error(f"❌ Routing failed: {e}")
+                st.session_state["clustered_stops"] = clustered_stops
+                st.success(f"✅ Generated {len(routes)} clustered routes.")
+    except Exception as e:
+        st.error(f"Routing error: {e}")
 
 # === DISPLAY ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📍 Optimized Route Map")
-
-    depot = st.session_state["school_coords"]
-    G = st.session_state["G"]
     routes = st.session_state["routes"]
+    G = st.session_state["G"]
+    depot = st.session_state["school_coords"]
 
-    import folium
-    m = folium.Map(location=depot, zoom_start=12)
-    colors = [
-        "red", "blue", "green", "purple", "orange", "darkred", "lightblue",
-        "darkgreen", "cadetblue", "darkblue", "black", "gray", "pink", "brown"
-    ]
+    # DEBUGGING OUTPUT
+    st.write("✅ Number of routes:", len(routes))
+    for rid, path in routes.items():
+        st.write(f"Route {rid} → nodes: {path[:5]}...")
 
-    any_routes_drawn = False
+    m = folium.Map(location=depot, zoom_start=13)
 
     for rid, route_nodes in routes.items():
         full_path = []
         for u, v in zip(route_nodes[:-1], route_nodes[1:]):
             try:
-                path = nx.shortest_path(G, u, v, weight='length')
-                full_path += path[:-1]
+                segment = nx.shortest_path(G, u, v, weight='length')
+                full_path += segment[:-1]
             except Exception as e:
-                print(f"[Routing ERROR] Route {rid}, {u} → {v}: {e}")
-                continue
+                st.warning(f"Route {rid} segment {u} → {v} failed: {e}")
         if route_nodes:
             full_path.append(route_nodes[-1])
 
-        # Convert node IDs to (lat, lon)
-        route_coords = [
-            (G.nodes[n]['y'], G.nodes[n]['x'])
-            for n in full_path if n in G.nodes
-        ]
+        try:
+            edge_gdf = ox.utils_graph.graph_to_gdfs(G.subgraph(full_path), nodes=False)
+            line = edge_gdf.unary_union
+            if line.is_empty:
+                continue
+            coords = list(line.coords)
+            folium.PolyLine(coords, color="blue", weight=4, tooltip=f"Route {rid}").add_to(m)
+        except Exception as e:
+            st.warning(f"Route {rid} drawing failed: {e}")
 
-        if not route_coords:
-            print(f"[SKIP] Route {rid} has no valid coordinates.")
-            continue
+    st_folium(m, width=950, height=600)
 
-        color = colors[rid % len(colors)]
-        folium.PolyLine(route_coords, color=color, weight=6, opacity=0.85, tooltip=f"Route {rid}").add_to(m)
-        any_routes_drawn = True
-
-        for i, (lat, lon) in enumerate(route_coords):
-            folium.CircleMarker(
-                location=(lat, lon),
-                radius=3,
-                color=color,
-                fill=True,
-                fill_opacity=0.8,
-                popup=f"Route {rid} Stop {i}"
-            ).add_to(m)
-
-    if not any_routes_drawn:
-        st.warning("⚠️ No routes could be drawn. Check console logs or expand road network area.")
-    else:
-        st_folium(m, width=950)
-
-    geojson_data = export_routes_geojson(routes, G)
-    st.download_button("📥 Download Routes (GeoJSON)", data=str(geojson_data), file_name="routes.geojson", mime="application/geo+json")
-
-# === COVERAGE ===
-st.subheader("🧭 Route Coverage Summary")
-st.write(f"🔴 Unsafe Stops: {df_stops[df_stops['Safety Rating']=='Unsafe'].shape[0]}")
-st.write(f"🟠 Acceptable Stops: {df_stops[df_stops['Safety Rating']=='Acceptable'].shape[0]}")
-st.write(f"🟢 Safe Stops: {df_stops[df_stops['Safety Rating']=='Safe'].shape[0]}")
-
-# === DATA TABLE ===
+# === STOP TABLE ===
 st.subheader("📋 Stop Table")
-st.dataframe(df_stops, use_container_width=True)
+st.dataframe(df_stops)
