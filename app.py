@@ -161,20 +161,94 @@ if "routes" in st.session_state:
 
     colors = ["red", "blue", "green", "purple", "orange"]
     for i, route in enumerate(routes):
-        valid_coords = [pt for pt in route if isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(x, (float, int)) for x in pt)]
-        if valid_coords:
-            folium.PolyLine(valid_coords, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
-            for j, pt in enumerate(valid_coords):
-                folium.CircleMarker(
-                    location=pt,
-                    radius=4,
-                    color=colors[i % len(colors)],
-                    fill=True,
-                    fill_opacity=0.8,
-                    popup=f"R{i+1} - Stop {j}"
-                ).add_to(m)
+        if not route or not isinstance(route, list):
+            continue
+
+        valid_coords = [
+            pt for pt in route
+            if isinstance(pt, (list, tuple)) and len(pt) == 2 and all(isinstance(x, (float, int)) for x in pt)
+        ]
+        if not valid_coords:
+            st.warning(f"⚠️ Route {i+1} has no valid coordinates.")
+            continue
+
+        folium.PolyLine(valid_coords, color=colors[i % len(colors)], weight=5, tooltip=f"Route {i+1}").add_to(m)
+        for j, pt in enumerate(valid_coords):
+            folium.CircleMarker(
+                location=pt,
+                radius=4,
+                color=colors[i % len(colors)],
+                fill=True,
+                fill_opacity=0.8,
+                popup=f"R{i+1} - Stop {j}"
+            ).add_to(m)
 
     st_folium(m, width=900, height=600)
+    # === OPTIMIZE FLEET MIX ===
+st.subheader("🚐 Fleet Mix Optimizer")
+bus_capacity = 55
+van_capacity = 9
+bus_cost = 483  
+van_cost = 95 + 8.33 + 16.31  # Total: 199.64
+driver_cost = 80
+
+if st.button("Optimize Fleet Mix"):
+    total_stops = len(df_stops)
+    best_mix = None
+    lowest_cost = float("inf")
+
+    for buses in range(0, 7):  # includes 0 buses
+        for vans in range(0, 11):  # includes 0 vans
+            capacity = buses * bus_capacity + vans * van_capacity
+            if capacity >= total_stops:
+                drivers = buses + vans
+                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+                if cost < lowest_cost:
+                    lowest_cost = cost
+                    best_mix = {
+                        "buses": buses,
+                        "vans": vans,
+                        "drivers": drivers,
+                        "cost": cost,
+                        "capacity": capacity
+                    }
+
+    if best_mix:
+        st.session_state["fleet_mix"] = best_mix
+    else:
+        st.error("No valid fleet mix found.")
+
+# === DISPLAY FLEET MIX RESULTS ===
+if "fleet_mix" in st.session_state:
+    mix = st.session_state["fleet_mix"]
+    st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
+    st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
+    st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
+    st.markdown(f"- **Total Capacity:** {mix['capacity']}")
+
+# === EXECUTIVE SUMMARY ===
+st.subheader("📊 Executive Summary")
+total_stops = len(df_stops)
+buses_needed = int(np.ceil(total_stops / bus_capacity))
+baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
+
+if "fleet_mix" in st.session_state:
+    optimized = st.session_state["fleet_mix"]
+    savings = baseline_cost - optimized["cost"]
+    safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
+    safe_pct = round(100 * safe_count / total_stops, 1)
+    
+    st.markdown(f"""
+    ### ✅ FleetLab Optimization:
+    - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
+    - **Drivers Needed**: {optimized['drivers']}  
+    - **Optimized Cost**: ${optimized['cost']:,.2f}  
+    - **Baseline (All Buses)**: ${baseline_cost:,.2f}  
+    - **Daily Savings**: ${savings:,.2f}  
+    - **% of Safe Stops**: {safe_pct}%  
+    """)
+else:
+    st.info("ℹ️ Run the optimizer to compare cost and safety improvements.")
 
 # === FINAL STOP TABLE ===
 st.subheader("📋 Final Stop Table")
