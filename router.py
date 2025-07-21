@@ -100,7 +100,7 @@ def export_routes_geojson(routes, G):
                         features.append({
                             "type": "Feature",
                             "geometry": line.__geo_interface__,
-                            "properties": {"route": int(rid)}
+                            "properties": {"route": str(rid)}  # safer for JSON compatibility
                         })
             except Exception as e:
                 print(f"❌ Routing export failed for segment {u} → {v}: {e}")
