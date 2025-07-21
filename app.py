@@ -161,28 +161,50 @@ bus_cost = 483
 van_cost = 95 + 8.33 + 16.31  # Total: 199.64
 driver_cost = 80
 
+from router import cluster_stops, route_cluster
+import osmnx as ox
+
+def precompute_osm_distances(osm_ids, G):
+    from itertools import combinations
+    dist_matrix = {}
+    for u, v in combinations(osm_ids, 2):
+        try:
+            length = nx.shortest_path_length(G, u, v, weight="length")
+            dist_matrix[(u, v)] = length
+            dist_matrix[(v, u)] = length
+        except:
+            dist_matrix[(u, v)] = float("inf")
+            dist_matrix[(v, u)] = float("inf")
+    return dist_matrix
+
 if st.button("Optimize Fleet Mix"):
     total_stops = len(df_stops)
     best_mix = None
     lowest_score = float("inf")
 
     max_stops_per_route = 12
-    max_route_distance = 10_000  # meters (~6.2 miles)
+    max_route_distance = 10_000  # meters
     school_coords = st.session_state.get("school_coords")
 
-    from router import cluster_stops  # call just clustering
-    from router import route_cluster  # per-cluster routing
-    import osmnx as ox
-
-    # ✅ Only load the OSM graph once
     try:
         G_cached = ox.graph_from_point(school_coords, dist=3000, network_type="drive")
     except Exception as e:
         st.error(f"❌ Failed to load OSM network: {e}")
         st.stop()
 
-    for buses in range(0, 4):      # Limit: max 3 buses
-        for vans in range(0, 6):   # Limit: max 5 vans
+    # Precompute nearest OSM IDs for all stops
+    df_with_osm = df_stops.copy()
+    df_with_osm["osmid"] = df_with_osm.apply(
+        lambda row: ox.distance.nearest_nodes(G_cached, row["lon"], row["lat"]), axis=1
+    )
+    school_osmid = ox.distance.nearest_nodes(G_cached, school_coords[1], school_coords[0])
+    all_osm_ids = [school_osmid] + df_with_osm["osmid"].tolist()
+
+    # ✅ Precompute all pairwise distances once
+    dist_matrix = precompute_osm_distances(all_osm_ids, G_cached)
+
+    for buses in range(0, 4):
+        for vans in range(0, 6):
             num_vehicles = buses + vans
             if num_vehicles == 0:
                 continue
@@ -197,34 +219,19 @@ if st.button("Optimize Fleet Mix"):
             cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
 
             try:
-                # Use shared G, only re-cluster stops
-                df_clustered = cluster_stops(df_stops.copy(), n_clusters=num_vehicles)
-                school_node = ox.distance.nearest_nodes(G_cached, school_coords[1], school_coords[0])
-                df_clustered["osmid"] = df_clustered.apply(
-                    lambda row: ox.distance.nearest_nodes(G_cached, row["lon"], row["lat"]), axis=1
-                )
-
-                # Build routes per cluster
+                df_clustered = cluster_stops(df_with_osm.copy(), n_clusters=num_vehicles)
                 routes = {}
                 longest_route = 0
+
                 for cid in sorted(df_clustered["cluster"].unique()):
                     cluster_df = df_clustered[df_clustered["cluster"] == cid]
                     route = route_cluster(cluster_df, G_cached, school_coords)
                     routes[cid] = route
 
-                    # Compute route distance
+                    # Compute distance using precomputed matrix
                     dist = 0
                     for u, v in zip(route[:-1], route[1:]):
-                        try:
-                            path = nx.shortest_path(G_cached, u, v, weight="length")
-                            for a, b in zip(path[:-1], path[1:]):
-                                if G_cached.has_edge(a, b):
-                                    edge_data = G_cached.get_edge_data(a, b)
-                                    if isinstance(edge_data, dict):
-                                        edge_data = edge_data[list(edge_data.keys())[0]]
-                                    dist += edge_data.get("length", 0)
-                        except:
-                            continue
+                        dist += dist_matrix.get((u, v), float("inf"))
                     longest_route = max(longest_route, dist)
 
                 penalty = 5000 if longest_route > max_route_distance else 0
@@ -244,9 +251,9 @@ if st.button("Optimize Fleet Mix"):
             except Exception as e:
                 continue
 
-    # Fallback if needed
+    # Fallback if none found
     if not best_mix:
-        st.warning("⚠️ No valid routing-based mix found — falling back to cost-only optimization.")
+        st.warning("⚠️ No valid routing-based mix found — falling back to cost-only.")
         for buses in range(0, 4):
             for vans in range(0, 6):
                 num_vehicles = buses + vans
