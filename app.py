@@ -157,7 +157,7 @@ except Exception as e:
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
 van_capacity = 9
-bus_cost = 483  
+bus_cost = 513  
 van_cost = 95 + 8.33 + 16.31  # Total: 199.64
 driver_cost = 80
 
