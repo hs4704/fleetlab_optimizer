@@ -230,7 +230,13 @@ if st.button("Optimize Fleet Mix"):
                             longest = max(longest, dist)
 
                         penalty = 5000 if longest > max_route_distance else 0
-                        score = cost + penalty
+
+                        # 🔥 New: Penalize buses with long routes
+                        bus_penalty = 0
+                        if buses > 0 and longest > 8000:
+                            bus_penalty = buses * (longest - 8000) * 0.05  # tune this weight if needed
+
+                        score = cost + penalty + bus_penalty
 
                         if score < lowest_score and longest != float("inf"):
                             lowest_score = score
@@ -240,8 +246,10 @@ if st.button("Optimize Fleet Mix"):
                                 "drivers": drivers,
                                 "cost": cost,
                                 "capacity": capacity,
-                                "longest_route_m": int(longest)
+                                "longest_route_m": int(longest),
+                                "bus_penalty": int(bus_penalty)
                             }
+
                     except Exception as e:
                         st.warning(f"⚠️ Routing error: {e}")
                         continue
@@ -266,6 +274,8 @@ if "fleet_mix" in st.session_state:
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
     if "longest_route_m" in mix:
         st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] * 0.000621:.1f} miles")
+    if "bus_penalty" in mix:
+        st.markdown(f"- **Bus Route Penalty:** ${mix['bus_penalty']:,.2f}")
 #==EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
 total_stops = len(df_stops)
