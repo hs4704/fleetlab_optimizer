@@ -74,29 +74,39 @@ def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
     return routes, G, df_stops
 
 def export_routes_geojson(routes, G):
+    from shapely.geometry import LineString
+
     features = []
-
-    if not routes:
-        print("⚠️ No routes to export.")
-        return {"type": "FeatureCollection", "features": []}
-
     for rid, path in routes.items():
-        if not path or len(path) < 2:
-            continue  # skip empty or invalid paths
+        full_path = []
         for u, v in zip(path[:-1], path[1:]):
             try:
                 segment = nx.shortest_path(G, u, v, weight="length")
-                line = ox.utils_graph.graph_to_gdfs(G.subgraph(segment), nodes=False).geometry.union_all()
-                features.append({
-                    "type": "Feature",
-                    "geometry": line.__geo_interface__,
-                    "properties": {"route": int(rid)}
-                })
+                edges = list(zip(segment[:-1], segment[1:]))
+                for edge_u, edge_v in edges:
+                    if G.has_edge(edge_u, edge_v):
+                        edge_data = G.get_edge_data(edge_u, edge_v)
+                        if isinstance(edge_data, dict):
+                            # Handle MultiEdge (Graph can have multiple parallel edges)
+                            edge_data = edge_data[list(edge_data.keys())[0]]
+                        geometry = edge_data.get("geometry", None)
+                        if geometry:
+                            line = geometry
+                        else:
+                            # Straight line if no geometry
+                            point_u = G.nodes[edge_u]
+                            point_v = G.nodes[edge_v]
+                            line = LineString([(point_u["x"], point_u["y"]), (point_v["x"], point_v["y"])])
+                        features.append({
+                            "type": "Feature",
+                            "geometry": line.__geo_interface__,
+                            "properties": {"route": int(rid)}
+                        })
             except Exception as e:
-                print(f"[Export ERROR] Route {rid} segment {u} → {v} failed: {e}")
+                print(f"❌ Routing export failed for segment {u} → {v}: {e}")
                 continue
 
-    print(f"✅ Exported {len(features)} route segments.")
+    print(f"✅ Exported {len(features)} route features.")
     return {
         "type": "FeatureCollection",
         "features": features
