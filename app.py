@@ -246,7 +246,59 @@ if st.button("Generate Routes"):
         st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES (Static Road Map with Arrows) ===
+# === INTERACTIVE ROUTE FILTER MAP ===
+if routes and G:
+    st.subheader("🗺️ Filter & View Routes on Interactive Map")
 
+    # Let user select which routes to display
+    route_ids = list(routes.keys())
+    selected_routes = st.multiselect(
+        "🧭 Select Routes to Display",
+        options=route_ids,
+        default=route_ids  # Show all by default
+    )
+
+    m_routes = folium.Map(location=[df_stops["lat"].mean(), df_stops["lon"].mean()], zoom_start=13)
+    color_map = plt.colormaps.get_cmap("tab10")
+
+    # Plot all stops (optional: color-code by cluster)
+    for _, row in df_stops.iterrows():
+        folium.CircleMarker(
+            location=[row["lat"], row["lon"]],
+            radius=5,
+            color="blue",
+            fill=True,
+            fill_opacity=0.4,
+            popup=row.get("Stop Name", "Stop")
+        ).add_to(m_routes)
+
+    # Plot selected routes
+    for rid in selected_routes:
+        color = color_map(rid % 10)
+        route_nodes = routes[rid]
+        for u, v in zip(route_nodes[:-1], route_nodes[1:]):
+            try:
+                segment = nx.shortest_path(G, u, v, weight='length')
+                latlngs = [(G.nodes[n]["y"], G.nodes[n]["x"]) for n in segment]
+                folium.PolyLine(
+                    latlngs,
+                    color=color,
+                    weight=5,
+                    opacity=0.8,
+                    popup=f"Route {rid}"
+                ).add_to(m_routes)
+            except:
+                continue
+
+    # Add school location marker
+    if depot:
+        folium.Marker(
+            location=[depot[0], depot[1]],
+            icon=folium.Icon(color="red", icon="school", prefix="fa"),
+            popup="School"
+        ).add_to(m_routes)
+
+    st_folium(m_routes, width=900)
 routes = st.session_state.get("routes")
 G = st.session_state.get("G")
 clustered_df = st.session_state.get("clustered_df")
