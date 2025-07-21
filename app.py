@@ -251,27 +251,27 @@ G = st.session_state.get("G")
 clustered_df = st.session_state.get("clustered_df")
 depot = st.session_state.get("school_coords")
 # === ROUTE FILTER ===
-if routes:
+if routes and G:
+    st.subheader("🗺️ Optimized Route Visualization (Static)")
+
+    # === Route Filter ===
     route_ids = sorted(routes.keys())
     selected_routes = st.multiselect(
         "🧭 Select Routes to Display",
         options=route_ids,
         default=route_ids  # Show all by default
     )
-else:
-    selected_routes = []
-if routes and G:
-    st.subheader("🗺️ Optimized Route Visualization (Static)")
 
     cmap = plt.colormaps.get_cmap("tab10")
-    colors = [cmap(i) for i in range(len(routes))]
+    colors = {rid: cmap(i % 10) for i, rid in enumerate(route_ids)}
 
     fig, ax = ox.plot_graph(G, show=False, close=False, bgcolor="white", node_size=0)
 
     for i, (cluster_id, route_nodes) in enumerate(routes.items()):
         if cluster_id not in selected_routes:
             continue
-        color = colors[i]
+
+        color = colors[cluster_id]
         full_path = []
 
         for u, v in zip(route_nodes[:-1], route_nodes[1:]):
@@ -313,9 +313,9 @@ if routes and G:
             clustered_df, geometry=gpd.points_from_xy(clustered_df["lon"], clustered_df["lat"]), crs="EPSG:4326"
         )
         for _, row in gdf_stops.iterrows():
-            x, y = row.geometry.x, row.geometry.y
-            color = colors[row["cluster"] % len(colors)]
-            ax.plot(x, y, marker='o', color=color, markersize=4)
+            if row["cluster"] in selected_routes:
+                x, y = row.geometry.x, row.geometry.y
+                ax.plot(x, y, marker='o', color=colors[row["cluster"]], markersize=4)
 
     # Plot school location
     gdf_nodes = graph_to_gdfs(G, nodes=True, edges=False)
@@ -324,7 +324,12 @@ if routes and G:
     x, y = school_geom.xy
     ax.plot(x[0], y[0], marker='*', color='red', markersize=20, label='School')
 
-    ax.legend(loc='lower right')
+    # === Add Color Legend ===
+    from matplotlib.lines import Line2D
+    legend_elements = [Line2D([0], [0], color=colors[rid], lw=4, label=f"Route {rid}") for rid in selected_routes]
+    legend_elements.append(Line2D([0], [0], marker='*', color='red', label='School', markersize=10, lw=0))
+    ax.legend(handles=legend_elements, loc='lower right')
+
     st.pyplot(fig)
 else:
     st.warning("⚠️ No routes to display yet. Click 'Generate Routes' to begin.")
