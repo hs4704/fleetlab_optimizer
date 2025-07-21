@@ -205,8 +205,8 @@ if st.button("Optimize Fleet Mix"):
             max_route_distance = 10_000  # meters
 
             # 🔁 Reduce combinations for debugging
-            for buses in range(1, 2):      # Just 1 bus
-                for vans in range(0, 2):   # 0 or 1 van
+            for buses in range(0, 4):       
+                for vans in range(0, 6):
                     st.write(f"🔍 Testing {buses} buses, {vans} vans...")
 
                     num_vehicles = buses + vans
@@ -269,8 +269,8 @@ if "fleet_mix" in st.session_state:
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
     if "longest_route_m" in mix:
-        st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] / 1000:.1f} km")
-# === EXECUTIVE SUMMARY ===
+        st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] * 0.000621:.1f} miles")
+#==EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
 total_stops = len(df_stops)
 buses_needed = int(np.ceil(total_stops / bus_capacity))
