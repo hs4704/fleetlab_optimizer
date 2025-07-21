@@ -167,7 +167,7 @@ if st.button("Optimize Fleet Mix"):
     lowest_score = float("inf")
 
     max_stops_per_route = 12
-    max_route_distance = 10_000  # meters
+    max_route_distance = 10_000  # meters (~6.2 miles)
 
     school_coords = st.session_state.get("school_coords")
 
@@ -177,21 +177,20 @@ if st.button("Optimize Fleet Mix"):
             if num_vehicles == 0:
                 continue
             if total_stops > num_vehicles * max_stops_per_route:
-                continue  # skip: too few vehicles for reasonable routes
+                continue  # Skip: too few vehicles for a practical route size
 
             capacity = buses * bus_capacity + vans * van_capacity
             if capacity < total_stops:
                 continue
 
-            drivers = buses + vans
+            drivers = num_vehicles
             cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
 
-            # Run routing with this fleet size (n_clusters = num_vehicles)
+            # Run routing with this number of clusters
             try:
                 from router import cluster_and_route_stops
                 routes, G_tmp, clustered_df_tmp = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=num_vehicles)
 
-                # Compute longest route distance
                 longest_route = 0
                 for route in routes.values():
                     dist = 0
@@ -208,11 +207,8 @@ if st.button("Optimize Fleet Mix"):
                             continue
                     longest_route = max(longest_route, dist)
 
-                # Soft penalty if longest route is too long
-                penalty = 0
-                if longest_route > max_route_distance:
-                    penalty = 5000  # adjust weight here
-
+                # Add penalty if longest route too long
+                penalty = 5000 if longest_route > max_route_distance else 0
                 score = cost + penalty
 
                 if score < lowest_score:
@@ -225,13 +221,35 @@ if st.button("Optimize Fleet Mix"):
                         "capacity": capacity,
                         "longest_route_m": int(longest_route)
                     }
+
             except Exception as e:
                 continue
+
+    # Fallback if no valid routing result found
+    if not best_mix:
+        st.warning("⚠️ No valid routing-based mix found — falling back to cost-only optimization.")
+        for buses in range(0, 7):
+            for vans in range(0, 11):
+                num_vehicles = buses + vans
+                capacity = buses * bus_capacity + vans * van_capacity
+                if capacity >= total_stops and num_vehicles > 0:
+                    drivers = num_vehicles
+                    cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+                    best_mix = {
+                        "buses": buses,
+                        "vans": vans,
+                        "drivers": drivers,
+                        "cost": cost,
+                        "capacity": capacity
+                    }
+                    break
+            if best_mix:
+                break
 
     if best_mix:
         st.session_state["fleet_mix"] = best_mix
     else:
-        st.error("❌ No valid fleet mix found within stop/time constraints.")
+        st.error("❌ No valid fleet mix found.")
 
 # === DISPLAY FLEET MIX RESULTS ===
 if "fleet_mix" in st.session_state:
@@ -240,7 +258,8 @@ if "fleet_mix" in st.session_state:
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
-    st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] / 1000:.1f} km")
+    if "longest_route_m" in mix:
+        st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] / 1000:.1f} km")
 
 # === EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
