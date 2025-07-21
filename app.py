@@ -168,16 +168,26 @@ if st.button("Optimize Fleet Mix"):
 
     max_stops_per_route = 12
     max_route_distance = 10_000  # meters (~6.2 miles)
-
     school_coords = st.session_state.get("school_coords")
 
-    for buses in range(0, 7):
-        for vans in range(0, 11):
+    from router import cluster_stops  # call just clustering
+    from router import route_cluster  # per-cluster routing
+    import osmnx as ox
+
+    # ✅ Only load the OSM graph once
+    try:
+        G_cached = ox.graph_from_point(school_coords, dist=3000, network_type="drive")
+    except Exception as e:
+        st.error(f"❌ Failed to load OSM network: {e}")
+        st.stop()
+
+    for buses in range(0, 4):      # Limit: max 3 buses
+        for vans in range(0, 6):   # Limit: max 5 vans
             num_vehicles = buses + vans
             if num_vehicles == 0:
                 continue
             if total_stops > num_vehicles * max_stops_per_route:
-                continue  # Skip: too few vehicles for a practical route size
+                continue
 
             capacity = buses * bus_capacity + vans * van_capacity
             if capacity < total_stops:
@@ -186,20 +196,30 @@ if st.button("Optimize Fleet Mix"):
             drivers = num_vehicles
             cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
 
-            # Run routing with this number of clusters
             try:
-                from router import cluster_and_route_stops
-                routes, G_tmp, clustered_df_tmp = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=num_vehicles)
+                # Use shared G, only re-cluster stops
+                df_clustered = cluster_stops(df_stops.copy(), n_clusters=num_vehicles)
+                school_node = ox.distance.nearest_nodes(G_cached, school_coords[1], school_coords[0])
+                df_clustered["osmid"] = df_clustered.apply(
+                    lambda row: ox.distance.nearest_nodes(G_cached, row["lon"], row["lat"]), axis=1
+                )
 
+                # Build routes per cluster
+                routes = {}
                 longest_route = 0
-                for route in routes.values():
+                for cid in sorted(df_clustered["cluster"].unique()):
+                    cluster_df = df_clustered[df_clustered["cluster"] == cid]
+                    route = route_cluster(cluster_df, G_cached, school_coords)
+                    routes[cid] = route
+
+                    # Compute route distance
                     dist = 0
                     for u, v in zip(route[:-1], route[1:]):
                         try:
-                            path = nx.shortest_path(G_tmp, u, v, weight="length")
+                            path = nx.shortest_path(G_cached, u, v, weight="length")
                             for a, b in zip(path[:-1], path[1:]):
-                                if G_tmp.has_edge(a, b):
-                                    edge_data = G_tmp.get_edge_data(a, b)
+                                if G_cached.has_edge(a, b):
+                                    edge_data = G_cached.get_edge_data(a, b)
                                     if isinstance(edge_data, dict):
                                         edge_data = edge_data[list(edge_data.keys())[0]]
                                     dist += edge_data.get("length", 0)
@@ -207,7 +227,6 @@ if st.button("Optimize Fleet Mix"):
                             continue
                     longest_route = max(longest_route, dist)
 
-                # Add penalty if longest route too long
                 penalty = 5000 if longest_route > max_route_distance else 0
                 score = cost + penalty
 
@@ -225,11 +244,11 @@ if st.button("Optimize Fleet Mix"):
             except Exception as e:
                 continue
 
-    # Fallback if no valid routing result found
+    # Fallback if needed
     if not best_mix:
         st.warning("⚠️ No valid routing-based mix found — falling back to cost-only optimization.")
-        for buses in range(0, 7):
-            for vans in range(0, 11):
+        for buses in range(0, 4):
+            for vans in range(0, 6):
                 num_vehicles = buses + vans
                 capacity = buses * bus_capacity + vans * van_capacity
                 if capacity >= total_stops and num_vehicles > 0:

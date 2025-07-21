@@ -112,4 +112,4 @@ def export_routes_geojson(routes, G):
         "type": "FeatureCollection",
         "features": features
     }
-__all__ = ["cluster_and_route_stops", "export_routes_geojson"]
+__all__ = ["cluster_stops", "route_cluster", "cluster_and_route_stops", "export_routes_geojson"]
