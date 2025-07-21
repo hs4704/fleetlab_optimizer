@@ -277,44 +277,57 @@ if "fleet_mix" in st.session_state:
     if "bus_penalty" in mix:
         st.markdown(f"- **Bus Route Penalty:** ${mix['bus_penalty']:,.2f}")
 # === EXECUTIVE SUMMARY ===
+# === EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
 total_stops = len(df_stops)
 buses_needed = int(np.ceil(total_stops / bus_capacity))
 
-# Base cost without fuel
+# Baseline costs
 baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
 
-# Use real route distance from fleet mix if available
+# Fallbacks
+fallback_distance_m = 8000
+bus_fuel_cost_per_mile = 0.6
+
 if "fleet_mix" in st.session_state:
     optimized = st.session_state["fleet_mix"]
     optimized_cost = optimized["cost"]
+    optimized_distance_m = optimized.get("longest_route_m", fallback_distance_m)
+    optimized_miles = optimized_distance_m * 0.000621
 
-    # Estimate distance: use longest_route_m if valid, else fallback to 8000 meters
-    longest_m = optimized.get("longest_route_m", 8000)
-    if longest_m == float("inf") or longest_m is None:
-        longest_m = 8000  # fallback
+    # Estimate all-bus distance (assume one long route per bus)
+    baseline_route_m = max(fallback_distance_m, optimized_distance_m)
+    baseline_total_miles = buses_needed * (baseline_route_m * 0.000621)
+    baseline_fuel_cost = baseline_total_miles * bus_fuel_cost_per_mile
+    true_bus_cost = baseline_cost + baseline_fuel_cost
 
-    bus_fuel_cost_per_mile = 0.6  # assume $0.60 per mile
-    route_miles = longest_m * 0.000621
-    fuel_cost_total = buses_needed * route_miles * bus_fuel_cost_per_mile
-
-    true_bus_cost = baseline_cost + fuel_cost_total
-    adjusted_savings = max(0, true_bus_cost - optimized_cost)
+    # Compare results
+    adjusted_savings = true_bus_cost - optimized_cost
+    time_savings_miles = baseline_total_miles - optimized_miles
 
     safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
     safe_pct = round(100 * safe_count / total_stops, 1)
 
+    # Smart summary
+    st.markdown(f"### ✅ FleetLab Optimization Summary")
+
     st.markdown(f"""
-    ### ✅ FleetLab Optimization:
     - **Recommended Fleet**: {optimized['buses']} Buses, {optimized['vans']} Vans  
     - **Drivers Needed**: {optimized['drivers']}  
     - **Optimized Daily Cost**: ${optimized_cost:,.2f}  
-    - **Baseline (All Buses + Fuel)**: ${true_bus_cost:,.2f}  
-    - **Estimated Daily Savings**: ${adjusted_savings:,.2f}  
+    - **Longest Route Distance**: {optimized_miles:.1f} miles  
     - **% of Safe Stops**: {safe_pct}%  
     """)
+
+    if adjusted_savings > 50:
+        st.success(f"💰 Estimated Savings vs. All Buses: ${adjusted_savings:,.2f}")
+    elif time_savings_miles > 5:
+        st.success(f"⏱️ Estimated Route Time Savings: {time_savings_miles:.1f} miles avoided")
+    else:
+        st.info("ℹ️ Similar cost and distance — consider safety and flexibility.")
+
 else:
-    st.info("ℹ️ Run the optimizer to compare cost and safety improvements.")
+    st.info("ℹ️ Run the optimizer to see cost and time comparisons.")
 # === ROUTE GENERATION ===
 st.subheader("🗺️ Route Planner")
 if st.button("Generate Routes"):
