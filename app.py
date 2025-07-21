@@ -318,7 +318,6 @@ if routes and G:
     st.pyplot(fig)
 else:
     st.warning("⚠️ No routes to display yet. Click 'Generate Routes' to begin.")
-st.write("📦 Debug: Routes structure", st.session_state["routes"])
 # === DOWNLOAD ROUTES ===
 if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📥 Download Routes")
