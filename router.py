@@ -75,34 +75,28 @@ def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
 
 def export_routes_geojson(routes, G):
     features = []
+
+    if not routes:
+        print("⚠️ No routes to export.")
+        return {"type": "FeatureCollection", "features": []}
+
     for rid, path in routes.items():
-        full_path = []
+        if not path or len(path) < 2:
+            continue  # skip empty or invalid paths
         for u, v in zip(path[:-1], path[1:]):
             try:
                 segment = nx.shortest_path(G, u, v, weight="length")
-                full_path.extend(segment[:-1])
+                line = ox.utils_graph.graph_to_gdfs(G.subgraph(segment), nodes=False).geometry.union_all()
+                features.append({
+                    "type": "Feature",
+                    "geometry": line.__geo_interface__,
+                    "properties": {"route": int(rid)}
+                })
             except Exception as e:
-                print(f"Route {rid} segment {u} → {v} failed: {e}")
-                continue
-        full_path.append(path[-1])
-
-        try:
-            edge_gdf = ox.utils_graph.graph_to_gdfs(G.subgraph(full_path), nodes=False)
-            geometry = edge_gdf.geometry.unary_union  # May be LineString or MultiLineString
-            if geometry.is_empty:
+                print(f"[Export ERROR] Route {rid} segment {u} → {v} failed: {e}")
                 continue
 
-            feature = {
-                "type": "Feature",
-                "geometry": geometry.__geo_interface__,
-                "properties": {"route": int(rid)}
-            }
-            features.append(feature)
-        except Exception as e:
-            print(f"Route {rid} export failed: {e}")
-            continue
-
-    print(f"✅ Exported {len(features)} route features")
+    print(f"✅ Exported {len(features)} route segments.")
     return {
         "type": "FeatureCollection",
         "features": features

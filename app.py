@@ -318,19 +318,12 @@ if routes and G:
     st.pyplot(fig)
 else:
     st.warning("⚠️ No routes to display yet. Click 'Generate Routes' to begin.")
+st.write("📦 Debug: Routes structure", st.session_state["routes"])
 # === DOWNLOAD ROUTES ===
-
 if "routes" in st.session_state and "G" in st.session_state:
     st.subheader("📥 Download Routes")
-if (
-    st.session_state.get("routes") is not None
-    and st.session_state.get("G") is not None
-):
-    routes = st.session_state["routes"]
-    G = st.session_state["G"]
-
-    geojson = export_routes_geojson(routes, G)
-    if geojson and "features" in geojson and len(geojson["features"]) > 0:
+    if st.session_state["routes"] and st.session_state["G"]:
+        geojson = export_routes_geojson(st.session_state["routes"], st.session_state["G"])
         geojson_str = json.dumps(geojson)
         st.download_button(
             label="🗺️ Download Routes (GeoJSON)",
@@ -339,9 +332,7 @@ if (
             mime="application/json"
         )
     else:
-        st.warning("⚠️ No valid routes to export. Try generating routes first.")
-else:
-    st.info("ℹ️ Routes not generated yet.")
+        st.info("ℹ️ No routes available to export yet.")
 
 # === FINAL STOP TABLE ===
 st.subheader("📋 Final Stop Table")
