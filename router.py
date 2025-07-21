@@ -53,6 +53,7 @@ def cluster_and_route_stops(df_stops, school_coords, n_clusters=3):
 
     routes = {}
     for cid in sorted(df_stops["cluster"].unique()):
+        cid = int(cid)  # ← force Python native int key
         cluster_df = df_stops[df_stops["cluster"] == cid]
         stop_nodes = list(cluster_df["osmid"])
         all_nodes = [school_node] + stop_nodes
