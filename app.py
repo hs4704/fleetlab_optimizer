@@ -232,7 +232,7 @@ if st.button("Optimize Fleet Mix"):
                         penalty = 5000 if longest > max_route_distance else 0
                         score = cost + penalty
 
-                        if score < lowest_score:
+                        if score < lowest_score and longest != float("inf"):
                             lowest_score = score
                             best_mix = {
                                 "buses": buses,
@@ -242,7 +242,6 @@ if st.button("Optimize Fleet Mix"):
                                 "capacity": capacity,
                                 "longest_route_m": int(longest)
                             }
-
                     except Exception as e:
                         st.warning(f"⚠️ Routing error: {e}")
                         continue
