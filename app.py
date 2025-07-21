@@ -284,7 +284,7 @@ baseline_cost = (buses_needed * bus_cost) + (buses_needed * driver_cost)
 
 if "fleet_mix" in st.session_state:
     optimized = st.session_state["fleet_mix"]
-    savings = baseline_cost - optimized["cost"]
+    savings = max(0, baseline_cost - optimized["cost"])
     safe_count = df_stops[df_stops["Safety Rating"] == "Safe"].shape[0]
     safe_pct = round(100 * safe_count / total_stops, 1)
     
