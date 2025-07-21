@@ -246,6 +246,10 @@ if st.button("Generate Routes"):
         st.error(f"❌ Routing error: {e}")
 
 # === DISPLAY ROUTES (Static Road Map with Arrows) ===
+routes = st.session_state.get("routes")
+G = st.session_state.get("G")
+clustered_df = st.session_state.get("clustered_df")
+depot = st.session_state.get("school_coords")
 # === INTERACTIVE ROUTE FILTER MAP ===
 if routes and G:
     st.subheader("🗺️ Filter & View Routes on Interactive Map")
@@ -299,11 +303,6 @@ if routes and G:
         ).add_to(m_routes)
 
     st_folium(m_routes, width=900)
-routes = st.session_state.get("routes")
-G = st.session_state.get("G")
-clustered_df = st.session_state.get("clustered_df")
-depot = st.session_state.get("school_coords")
-
 if routes and G:
     st.subheader("🗺️ Optimized Route Visualization (Static)")
 
