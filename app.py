@@ -153,7 +153,7 @@ try:
     st_folium(m, width=900)
 except Exception as e:
     st.error(f"❌ Map rendering error: {e}")
-# === OPTIMIZE FLEET MIX (Debug Version) ===
+# === OPTIMIZE FLEET MIX (Final Version) ===
 st.subheader("🚐 Fleet Mix Optimizer")
 bus_capacity = 55
 van_capacity = 9
@@ -165,38 +165,37 @@ from router import cluster_stops
 import osmnx as ox
 
 def precompute_all_routes(df_stops, G, depot_node):
-    osmid_lookup = df_stops[["lat", "lon"]].apply(lambda row: ox.distance.nearest_nodes(G, row["lon"], row["lat"]), axis=1)
+    osmid_lookup = df_stops[["lat", "lon"]].apply(
+        lambda row: ox.distance.nearest_nodes(G, row["lon"], row["lat"]),
+        axis=1
+    )
     osm_ids = [depot_node] + osmid_lookup.tolist()
 
     dist_matrix = {}
     for i in range(len(osm_ids)):
-        for j in range(len(osm_ids)):
+        for j in range(i + 1, len(osm_ids)):
             u, v = osm_ids[i], osm_ids[j]
-            if u == v:
-                dist_matrix[(u, v)] = 0
-            elif (u, v) not in dist_matrix:
-                try:
-                    length = nx.shortest_path_length(G, u, v, weight="length")
-                    dist_matrix[(u, v)] = length
-                    dist_matrix[(v, u)] = length
-                except Exception as e:
-                    dist_matrix[(u, v)] = float("inf")
-                    dist_matrix[(v, u)] = float("inf")
-                    st.warning(f"Distance error ({u}, {v}): {e}")
+            try:
+                length = nx.shortest_path_length(G, u, v, weight="length")
+            except Exception:
+                length = float("inf")
+            dist_matrix[(u, v)] = length
+            dist_matrix[(v, u)] = length
     return osmid_lookup.tolist(), dist_matrix
 
 if st.button("Optimize Fleet Mix"):
     with st.spinner("⏳ Optimizing fleet and routing..."):
+        progress_msg = st.empty()
         try:
             total_stops = len(df_stops)
             school_coords = st.session_state.get("school_coords")
 
+            # Load OSM graph
             G = ox.graph_from_point(school_coords, dist=3000, network_type="drive")
             depot_node = ox.distance.nearest_nodes(G, school_coords[1], school_coords[0])
 
-            st.write("✅ OSM graph loaded.")
+            # Precompute distances
             osmid_list, dist_matrix = precompute_all_routes(df_stops, G, depot_node)
-            st.write("✅ Distance matrix precomputed.")
             df_stops["osmid"] = osmid_list
 
             best_mix = None
@@ -204,20 +203,18 @@ if st.button("Optimize Fleet Mix"):
             max_stops_per_route = 12
             max_route_distance = 10_000  # meters
 
-            # 🔁 Reduce combinations for debugging
-            for buses in range(0, 4):       
-                for vans in range(0, 6):
-                    progress_msg = st.empty()
+            for buses in range(0, 4):       # up to 3 buses
+                for vans in range(0, 6):    # up to 5 vans
                     progress_msg.markdown(f"🔍 Testing {buses} buses, {vans} vans...")
 
                     num_vehicles = buses + vans
+                    if num_vehicles == 0:
+                        continue
                     if total_stops > num_vehicles * max_stops_per_route:
-                        st.write("⛔ Skipped: Too many stops per vehicle.")
                         continue
 
                     capacity = buses * bus_capacity + vans * van_capacity
                     if capacity < total_stops:
-                        st.write("⛔ Skipped: Not enough capacity.")
                         continue
 
                     drivers = num_vehicles
@@ -225,8 +222,6 @@ if st.button("Optimize Fleet Mix"):
 
                     try:
                         df_clustered = cluster_stops(df_stops.copy(), n_clusters=num_vehicles)
-                        st.write("✅ Clustering complete.")
-
                         longest = 0
                         for cid in df_clustered["cluster"].unique():
                             cluster_df = df_clustered[df_clustered["cluster"] == cid]
@@ -234,7 +229,6 @@ if st.button("Optimize Fleet Mix"):
                             dist = sum(dist_matrix.get((u, v), float("inf")) for u, v in zip(nodes[:-1], nodes[1:]))
                             longest = max(longest, dist)
 
-                        st.write(f"🧭 Longest route: {longest:.1f} meters")
                         penalty = 5000 if longest > max_route_distance else 0
                         score = cost + penalty
 
@@ -250,7 +244,7 @@ if st.button("Optimize Fleet Mix"):
                             }
 
                     except Exception as e:
-                        st.warning(f"⚠️ Error during routing: {e}")
+                        st.warning(f"⚠️ Routing error: {e}")
                         continue
 
             if best_mix:
@@ -261,12 +255,13 @@ if st.button("Optimize Fleet Mix"):
 
         except Exception as e:
             st.error(f"❌ Optimizer crashed: {e}")
+        finally:
+            progress_msg.empty()
 
 # === DISPLAY FLEET MIX RESULTS ===
 if "fleet_mix" in st.session_state:
     mix = st.session_state["fleet_mix"]
     st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
-    progress_msg.empty()
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
