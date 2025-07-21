@@ -207,7 +207,8 @@ if st.button("Optimize Fleet Mix"):
             # 🔁 Reduce combinations for debugging
             for buses in range(0, 4):       
                 for vans in range(0, 6):
-                    st.write(f"🔍 Testing {buses} buses, {vans} vans...")
+                    progress_msg = st.empty()
+                    progress_msg.markdown(f"🔍 Testing {buses} buses, {vans} vans...")
 
                     num_vehicles = buses + vans
                     if total_stops > num_vehicles * max_stops_per_route:
@@ -265,6 +266,7 @@ if st.button("Optimize Fleet Mix"):
 if "fleet_mix" in st.session_state:
     mix = st.session_state["fleet_mix"]
     st.success(f"✅ Optimal Fleet: {mix['buses']} Buses, {mix['vans']} Vans")
+    progress_msg.empty()
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
