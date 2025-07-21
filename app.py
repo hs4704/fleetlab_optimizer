@@ -164,28 +164,74 @@ driver_cost = 80
 if st.button("Optimize Fleet Mix"):
     total_stops = len(df_stops)
     best_mix = None
-    lowest_cost = float("inf")
+    lowest_score = float("inf")
 
-    for buses in range(0, 7):  # includes 0 buses
-        for vans in range(0, 11):  # includes 0 vans
+    max_stops_per_route = 12
+    max_route_distance = 10_000  # meters
+
+    school_coords = st.session_state.get("school_coords")
+
+    for buses in range(0, 7):
+        for vans in range(0, 11):
+            num_vehicles = buses + vans
+            if num_vehicles == 0:
+                continue
+            if total_stops > num_vehicles * max_stops_per_route:
+                continue  # skip: too few vehicles for reasonable routes
+
             capacity = buses * bus_capacity + vans * van_capacity
-            if capacity >= total_stops:
-                drivers = buses + vans
-                cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
-                if cost < lowest_cost:
-                    lowest_cost = cost
+            if capacity < total_stops:
+                continue
+
+            drivers = buses + vans
+            cost = (buses * bus_cost) + (vans * van_cost) + (drivers * driver_cost)
+
+            # Run routing with this fleet size (n_clusters = num_vehicles)
+            try:
+                from router import cluster_and_route_stops
+                routes, G_tmp, clustered_df_tmp = cluster_and_route_stops(df_stops.copy(), school_coords, n_clusters=num_vehicles)
+
+                # Compute longest route distance
+                longest_route = 0
+                for route in routes.values():
+                    dist = 0
+                    for u, v in zip(route[:-1], route[1:]):
+                        try:
+                            path = nx.shortest_path(G_tmp, u, v, weight="length")
+                            for a, b in zip(path[:-1], path[1:]):
+                                if G_tmp.has_edge(a, b):
+                                    edge_data = G_tmp.get_edge_data(a, b)
+                                    if isinstance(edge_data, dict):
+                                        edge_data = edge_data[list(edge_data.keys())[0]]
+                                    dist += edge_data.get("length", 0)
+                        except:
+                            continue
+                    longest_route = max(longest_route, dist)
+
+                # Soft penalty if longest route is too long
+                penalty = 0
+                if longest_route > max_route_distance:
+                    penalty = 5000  # adjust weight here
+
+                score = cost + penalty
+
+                if score < lowest_score:
+                    lowest_score = score
                     best_mix = {
                         "buses": buses,
                         "vans": vans,
                         "drivers": drivers,
                         "cost": cost,
-                        "capacity": capacity
+                        "capacity": capacity,
+                        "longest_route_m": int(longest_route)
                     }
+            except Exception as e:
+                continue
 
     if best_mix:
         st.session_state["fleet_mix"] = best_mix
     else:
-        st.error("No valid fleet mix found.")
+        st.error("❌ No valid fleet mix found within stop/time constraints.")
 
 # === DISPLAY FLEET MIX RESULTS ===
 if "fleet_mix" in st.session_state:
@@ -194,6 +240,7 @@ if "fleet_mix" in st.session_state:
     st.markdown(f"- **Drivers Needed:** {mix['drivers']}")
     st.markdown(f"- **Estimated Daily Cost:** ${mix['cost']:,.2f}")
     st.markdown(f"- **Total Capacity:** {mix['capacity']}")
+    st.markdown(f"- **Longest Route Distance:** {mix['longest_route_m'] / 1000:.1f} km")
 
 # === EXECUTIVE SUMMARY ===
 st.subheader("📊 Executive Summary")
