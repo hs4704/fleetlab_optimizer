@@ -1,6 +1,6 @@
 # 🚌 FleetLab Safety & Routing Dashboard
 
-**FleetLab** is an interactive geospatial simulation and optimization tool for improving school transportation systems. Built in Python with Streamlit, this dashboard helps school districts design safer, more efficient bus and van routes by simulating realistic student stops, scoring safety at each stop, and recommending optimal fleet mixes.
+This **Fleet Lab** Dashboard is an interactive geospatial simulation and optimization tool for improving school transportation systems. Built in Python with Streamlit, this dashboard helps school districts design safer, more efficient bus and van routes by simulating realistic student stops, scoring safety at each stop, and recommending optimal fleet mixes.
 
 ---
 
