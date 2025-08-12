@@ -68,4 +68,8 @@ School transportation logistics require balancing **student safety**, **vehicle 
    - Interactive safety map  
    - Recommended fleet mix  
    - Route visualizations  
-   - Downloadable stop/route files  
+   - Downloadable stop/route files
+  
+## 🌐 App
+
+**👉 [Launch FleetLab Optimizer Dashboard](https://fleetlaboptimizer-ix8kyico7vsxabbzk4tsuu.streamlit.app)**
